@@ -1,0 +1,9 @@
+node_modules
+.env
+.git
+.gitignore
+docs
+test
+public/host.bundle.js
+public/md-collab-editor.js
+public/*.LEGAL.txt

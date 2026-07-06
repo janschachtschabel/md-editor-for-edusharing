@@ -1,0 +1,17 @@
+# All-in-one deployment: frontend + collab server in one container.
+#   docker compose up --build
+# Configuration via .env in the project root (see .env.example).
+services:
+  md-collab-demo:
+    build: .
+    ports:
+      - "${PORT:-3000}:3000"
+    environment:
+      EDU_REPO_BASE_URL: ${EDU_REPO_BASE_URL:-https://repository.staging.openeduhub.net}
+      EDU_USER: ${EDU_USER:-}
+      EDU_PASS: ${EDU_PASS:-}
+      SAVE_DEBOUNCE_MS: ${SAVE_DEBOUNCE_MS:-15000}
+      SAVE_MAX_DEBOUNCE_MS: ${SAVE_MAX_DEBOUNCE_MS:-90000}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-}
+      TRUST_PROXY_HOPS: ${TRUST_PROXY_HOPS:-0}
+    restart: unless-stopped

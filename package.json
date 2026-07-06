@@ -1,0 +1,47 @@
+{
+  "name": "edu-sharing-md-collab-demo",
+  "version": "0.1.0",
+  "description": "Demo: kollaborative Markdown-Bearbeitung kompendialer Texte auf edu-sharing-Knoten (TipTap + Yjs + Hocuspocus)",
+  "type": "module",
+  "license": "MIT",
+  "scripts": {
+    "build": "esbuild src/md-collab-editor.js --bundle --minify --legal-comments=external --outfile=public/md-collab-editor.js && esbuild src/host.js --bundle --minify --legal-comments=external --outfile=public/host.bundle.js",
+    "start": "node server.js",
+    "dev": "npm run build && node server.js",
+    "test": "node test/roundtrip.test.mjs && node test/save-state.test.mjs && node test/guards.test.mjs && node test/sessions.test.mjs && node test/api-auth.test.mjs",
+    "lint": "eslint ."
+  },
+  "dependencies": {
+    "@hocuspocus/provider": "^4.3.0",
+    "@hocuspocus/server": "^4.3.0",
+    "@hocuspocus/transformer": "^4.3.0",
+    "@tiptap/core": "^3.27.1",
+    "@tiptap/extension-collaboration": "^3.27.1",
+    "@tiptap/extension-collaboration-caret": "^3.27.1",
+    "@tiptap/extension-image": "^3.27.1",
+    "@tiptap/extension-list": "^3.27.1",
+    "@tiptap/extension-subscript": "^3.27.1",
+    "@tiptap/extension-superscript": "^3.27.1",
+    "@tiptap/extension-table": "^3.27.1",
+    "@tiptap/extensions": "^3.27.1",
+    "@tiptap/html": "^3.27.1",
+    "@tiptap/pm": "^3.27.1",
+    "@tiptap/starter-kit": "^3.27.1",
+    "crossws": "^0.4.1",
+    "dotenv": "^17.4.2",
+    "express": "^4.21.2",
+    "marked": "^18.0.5",
+    "turndown": "^7.2.0",
+    "turndown-plugin-gfm": "^1.0.2",
+    "yjs": "^13.6.23"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "esbuild": "^0.28.1",
+    "eslint": "^10.6.0",
+    "globals": "^17.7.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

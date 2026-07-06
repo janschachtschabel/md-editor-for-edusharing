@@ -1,0 +1,113 @@
+# =============================================================================
+# GitLab CI/CD — MD-Collab-Editor (collaborative markdown editor for edu-sharing)
+# =============================================================================
+# Active pipeline configuration for the company-internal GitLab repo. Does not
+# touch the GitHub workflows (.github/workflows/) — both platforms run in
+# parallel (GitHub → ghcr.io, GitLab → self-hosted registry).
+#
+# CREDENTIALS / COMPANY SPECIFICS — do NOT put them here; create them in
+# GitLab under  Settings → CI/CD → Variables  as (masked + protected):
+#   DOCKER_REGISTRY   e.g. docker.edu-sharing.com   (registry host)
+#   DOCKER_USERNAME   CI user / deploy-token user
+#   DOCKER_PASSWORD   CI token / password           (masked + protected)
+#   DIND_IMAGE        e.g. docker:27-dind
+#   DIND_HOST         e.g. tcp://docker:2376
+#   DIND_DRIVER       e.g. overlay2
+#   DIND_TLS_CERTDIR  e.g. /certs
+#
+# Image path: DOCKER_IMAGE_PATH below. Override as a CI/CD variable if needed.
+#
+# The Docker build (stage "build") only runs when DOCKER_REGISTRY is set —
+# as long as the variables are missing the pipeline stays green (tests only).
+# =============================================================================
+
+stages:
+  - test
+  - build
+
+variables:
+  # Image path inside the registry (without the registry host). The full pull
+  # path is "$DOCKER_REGISTRY/$DOCKER_IMAGE_PATH" →
+  #   docker.edu-sharing.com/projects/wlo/md-collab-editor
+  # Fixed path instead of $CI_PROJECT_PATH so the GitLab group hierarchy
+  # does not leak into the image repository. Override as CI/CD variable if needed.
+  DOCKER_IMAGE_PATH: "projects/wlo/md-collab-editor"
+
+# -----------------------------------------------------------------------------
+# Build + test — bundles must compile, all 5 test suites must pass
+# (markdown round trip, save-bar logic, guards, session store, API auth
+# integration against a mocked edu-sharing).
+# -----------------------------------------------------------------------------
+build and test:
+  stage: test
+  interruptible: true
+  image: node:22-bookworm-slim
+  before_script:
+    - node --version
+    - npm ci --no-audit --no-fund
+  script:
+    - npm run lint
+    - npm run build
+    - test -f public/md-collab-editor.js
+    - test -f public/host.bundle.js
+    - npm test
+
+# -----------------------------------------------------------------------------
+# Build Docker image + push to (self-hosted) registry — main + develop
+# Tag = branch slug (e.g. "main", "develop")
+# -----------------------------------------------------------------------------
+build and push (branches):
+  stage: build
+  image: $DIND_IMAGE
+  variables:
+    DOCKER_HOST: "$DIND_HOST"
+    DOCKER_DRIVER: "$DIND_DRIVER"
+    DOCKER_TLS_CERTDIR: "$DIND_TLS_CERTDIR"
+  services:
+    - name: "$DIND_IMAGE"
+      alias: docker
+      entrypoint: [ "env", "-u", "DOCKER_HOST" ]
+      command: [ "dockerd-entrypoint.sh" ]
+  before_script:
+    - docker --version
+  script:
+    - docker login "$DOCKER_REGISTRY" -u "$DOCKER_USERNAME" -p "$DOCKER_PASSWORD"
+    - docker buildx build --tag "$DOCKER_REGISTRY/$DOCKER_IMAGE_PATH:$CI_COMMIT_REF_SLUG" .
+    - docker image push "$DOCKER_REGISTRY/$DOCKER_IMAGE_PATH:$CI_COMMIT_REF_SLUG"
+  rules:
+    # Only runs when the registry variable is configured. While the CI/CD
+    # variables (DOCKER_REGISTRY etc.) are missing, the job is skipped and
+    # the pipeline stays green (instead of failing at docker login).
+    - if: "$CI_COMMIT_BRANCH == 'main' && $DOCKER_REGISTRY"
+    - if: "$CI_COMMIT_BRANCH == 'develop' && $DOCKER_REGISTRY"
+
+# -----------------------------------------------------------------------------
+# Build + push Docker image on tag creation (e.g. v1.2.0)
+# Tag = exact git tag name
+# -----------------------------------------------------------------------------
+build and push (tags):
+  stage: build
+  image: $DIND_IMAGE
+  variables:
+    DOCKER_HOST: "$DIND_HOST"
+    DOCKER_DRIVER: "$DIND_DRIVER"
+    DOCKER_TLS_CERTDIR: "$DIND_TLS_CERTDIR"
+  services:
+    - name: "$DIND_IMAGE"
+      alias: docker
+      entrypoint: [ "env", "-u", "DOCKER_HOST" ]
+      command: [ "dockerd-entrypoint.sh" ]
+  before_script:
+    - docker --version
+  script:
+    - docker login "$DOCKER_REGISTRY" -u "$DOCKER_USERNAME" -p "$DOCKER_PASSWORD"
+    - docker buildx build --tag "$DOCKER_REGISTRY/$DOCKER_IMAGE_PATH:$CI_COMMIT_REF_NAME" .
+    - docker image push "$DOCKER_REGISTRY/$DOCKER_IMAGE_PATH:$CI_COMMIT_REF_NAME"
+  rules:
+    # Only on tag AND with a configured registry (see above).
+    - if: "$CI_COMMIT_TAG && $DOCKER_REGISTRY"
+
+# NOTE: unlike the Ideendatenbank pipeline this repo has no Helm chart —
+# the former "deploy" stage (helm package/push) was removed on purpose.
+# If a chart is added later (deploy/helm/…), restore that stage from the
+# Ideendatenbank template.
