@@ -279,11 +279,9 @@ test/                      6 Testsuiten (npm test)
 
 ## Hosting (Docker)
 
-Frontend + Collab-Server laufen **zusammen in einem Container**. Der Server
-braucht persistente WebSocket-Verbindungen (Yjs) — reine
-Serverless-Plattformen (z. B. Vercel Functions) scheiden daher aus; geeignet
-ist jede Docker-Umgebung mit WebSocket-Support (Render, Railway, Fly.io,
-eigener Server).
+Frontend + Collab-Server laufen **zusammen in einem Container**. Geeignet ist
+jede Docker-Umgebung mit WebSocket-Support (Render, Railway, Fly.io, eigener
+Server).
 
 ```bash
 docker compose up --build          # nutzt .env aus dem Projektordner
@@ -294,6 +292,25 @@ docker run -p 3000:3000 md-collab-demo
 
 Hinter HTTPS nutzt die Seite automatisch `wss://`. Konfiguration über
 Umgebungsvariablen (siehe Tabelle oben bzw. [docker-compose.yml](docker-compose.yml)).
+
+### Warum kein Vercel (o. ä. Serverless)?
+
+Der Collab-Server ist ein **langlaufender, zustandsbehafteter Prozess mit
+persistenten WebSockets** — das genaue Gegenmodell zu Serverless-Functions:
+
+- **Persistente WebSockets:** Yjs/Hocuspocus hält je offenem Dokument eine
+  Verbindung über die ganze Editiersitzung offen. Vercel-Functions können
+  keinen WebSocket-*Server* betreiben (sie leben nur für einen Request).
+- **Zustand im RAM:** Offene Yjs-Dokumente, Session-Tokens, Save-Puffer und
+  Debounce-Timer liegen im Speicher **eines** Prozesses. Serverless ist
+  zustandslos/ephemer — zwischen zwei Aufrufen ginge all das verloren.
+
+**Hybrid möglich:** Das statische Frontend *kann* auf Vercel liegen, der
+Collab-Server muss aber per Docker (Render etc.) laufen — Frontend über
+[public/app-config.js](public/app-config.js) → `backendBase` mit dem Server
+verbinden, am Server `ALLOWED_ORIGINS` setzen (siehe „Cross-Origin-Einbettung"
+unten). Für eine Demo bringt das nur Zusatzkomplexität; der **All-in-One-
+Container** ist der einfachste Weg.
 
 **Hinter einem Reverse-Proxy (nginx, Traefik, Render …):**
 
