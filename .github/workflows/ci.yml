@@ -50,6 +50,7 @@ jobs:
           ls -la public/*.js
 
       - name: Run tests
-        # 5 suites: roundtrip, save-state, guards, sessions, api-auth
-        # (the api-auth suite spawns the real server against a mock repo)
+        # 9 suites: roundtrip, annotations, entity-types, save-state, guards,
+        # sessions, api-auth (spawns the real server against a mock repo),
+        # i18n key parity, annotation-ui (jsdom)
         run: npm test

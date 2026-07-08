@@ -14,12 +14,35 @@
  * origin than the collab server, set `window.APP_CONFIG.backendBase` in
  * public/app-config.js — API calls and the WebSocket URL are derived from it.
  */
+import { t, detectLang, setLang } from './i18n.js'
+
 const $ = (sel) => document.querySelector(sel)
+
+// UI language: persisted in localStorage, applied once on load. Changing it
+// reloads the page (see the #lang-switch listener) — simpler and more
+// robust than live-reactive text swapping for a page with this much
+// server-driven/dynamic content.
+const lang = detectLang()
 
 // '' = same origin; otherwise e.g. 'https://collab.example.org'
 const BACKEND_BASE = (window.APP_CONFIG?.backendBase || '').replace(/\/$/, '')
 const WS_URL = BACKEND_BASE ? BACKEND_BASE.replace(/^http/, 'ws') + '/collab' : ''
 const NODE_INFO_POLL_MS = 30000
+
+/** Apply translations to the static markup (public/index.html) once on load. */
+function applyStaticTranslations() {
+  document.documentElement.lang = lang
+  for (const el of document.querySelectorAll('[data-i18n]')) el.innerHTML = t(lang, el.dataset.i18n)
+  for (const el of document.querySelectorAll('[data-i18n-title]')) el.title = t(lang, el.dataset.i18nTitle)
+  for (const el of document.querySelectorAll('[data-i18n-placeholder]')) el.placeholder = t(lang, el.dataset.i18nPlaceholder)
+  const langSwitch = $('#lang-switch')
+  langSwitch.value = lang
+  langSwitch.addEventListener('change', () => {
+    setLang(langSwitch.value)
+    location.reload()
+  })
+}
+applyStaticTranslations()
 
 /** fetch against the collab server (same origin or configured backend). */
 function api(path, options) {
@@ -56,7 +79,7 @@ $('#login-form').addEventListener('submit', async (e) => {
   const user = $('#l-user').value.trim()
   const pass = $('#l-pass').value
   const msg = $('#login-msg')
-  msg.textContent = 'Prüfe Anmeldung …'
+  msg.textContent = t(lang, 'host.loginChecking')
   try {
     const res = await api('/api/login', {
       method: 'POST',
@@ -64,7 +87,7 @@ $('#login-form').addEventListener('submit', async (e) => {
       body: JSON.stringify({ username: user, password: pass }),
     })
     const data = await res.json()
-    if (!res.ok) throw new Error(data.error || 'Anmeldung fehlgeschlagen')
+    if (!res.ok) throw new Error(data.error || t(lang, 'host.loginFailedDefault'))
     session.set({ token: data.token, name: data.displayName || user })
     msg.textContent = ''
     updateLoginBox()
@@ -112,7 +135,7 @@ function openDocument(nodeId, field) {
   liveSave = null
 
   // Keep the URL shareable (multi-user testing)
-  const userName = $('#f-name').value.trim() || session.name || 'Anonym'
+  const userName = $('#f-name').value.trim() || session.name || t(lang, 'host.anonymousName')
   const q = new URLSearchParams({ nodeId, ...(field && { field }), name: userName })
   history.replaceState(null, '', `?${q}`)
   $('#share-url').textContent = `${location.origin}/?nodeId=${nodeId}${field ? `&field=${field}` : ''}`
@@ -126,6 +149,7 @@ function openDocument(nodeId, field) {
   const el = document.createElement('md-collab-editor')
   el.setAttribute('document-name', documentName)
   el.setAttribute('user-name', userName)
+  el.setAttribute('lang', lang)
   if (WS_URL) el.setAttribute('websocket-url', WS_URL)
   if (session.token) el.setAttribute('token', session.token)
   slot.appendChild(el)
@@ -134,7 +158,11 @@ function openDocument(nodeId, field) {
     const s = e.detail.status
     const conn = $('#conn')
     conn.dataset.state = s
-    conn.textContent = { connected: 'verbunden', connecting: 'verbinde …', disconnected: 'getrennt' }[s] || s
+    conn.textContent = {
+      connected: t(lang, 'host.connConnected'),
+      connecting: t(lang, 'host.connConnecting'),
+      disconnected: t(lang, 'host.connDisconnected'),
+    }[s] || s
   })
 
   // Real-time save state from the server broadcast — replaces fast polling (P-01)
@@ -154,7 +182,7 @@ function openDocument(nodeId, field) {
 
   $('#doc-panel').hidden = false
   $('#doc-id').textContent = nodeId
-  $('#doc-title').textContent = 'Lade …'
+  $('#doc-title').textContent = t(lang, 'host.loading')
   clearInterval(statusTimer)
   refreshNodeInfo()
   statusTimer = setInterval(refreshNodeInfo, NODE_INFO_POLL_MS)
@@ -197,7 +225,7 @@ async function refreshNodeInfo() {
 function renderStatus() {
   const info = nodeInfo
   if (info?.error) {
-    $('#doc-title').textContent = 'Knoten nicht erreichbar'
+    $('#doc-title').textContent = t(lang, 'host.nodeUnreachable')
     setSaveState('error', info.error)
     return
   }
@@ -206,7 +234,7 @@ function renderStatus() {
     const renderLink = $('#render-link')
     renderLink.href = info.renderUrl
     renderLink.hidden = false
-    $('#doc-target').textContent = info.targetLabel ? `Speicherziel: ${info.targetLabel}` : ''
+    $('#doc-target').textContent = info.targetLabel ? t(lang, 'host.saveTarget', { label: info.targetLabel }) : ''
   }
 
   const s = liveSave
@@ -216,23 +244,23 @@ function renderStatus() {
   $('#autosave-warn').hidden = (s ? s.autosave : true) || !canPersist
 
   if (info?.contentBlocked) {
-    setSaveState('blocked', info.blockReason || 'Bearbeitung für diesen Knoten nicht möglich.')
+    setSaveState('blocked', info.blockReason || t(lang, 'host.blockedDefault'))
   } else if (!canPersist) {
     setSaveState('readonly', session.token
-      ? 'Nur-Lesen: dein Account hat kein Schreibrecht auf diesen Knoten.'
-      : 'Nur-Lesen: ohne Anmeldung werden Änderungen nicht gespeichert.')
+      ? t(lang, 'host.readonlyWithAccount')
+      : t(lang, 'host.readonlyNoAccount'))
   } else if (s?.error) {
-    setSaveState('error', `Speicherfehler: ${s.error}`)
+    setSaveState('error', t(lang, 'host.saveErrorPrefix', { err: s.error }))
   } else if (s?.dirty && !s.autosave) {
-    setSaveState('pending', 'Ungespeicherte Änderungen im Puffer — Auto-Speichern ist aus, „Jetzt speichern" nutzen.')
+    setSaveState('pending', t(lang, 'host.pendingNoAutosave'))
   } else if (s?.dirty) {
     const secs = Math.round((s.debounce || 15000) / 1000)
-    setSaveState('pending', `Änderungen im Puffer — Speicherung folgt automatisch (~${secs}s nach der letzten Eingabe, sofort beim Verlassen).`)
+    setSaveState('pending', t(lang, 'host.pendingAutosave', { secs }))
   } else if (s?.lastSavedAt) {
-    const t = new Date(s.lastSavedAt).toLocaleTimeString('de-DE')
-    setSaveState('saved', `Gespeichert ins Repo um ${t}.`)
+    const time = new Date(s.lastSavedAt).toLocaleTimeString(lang === 'en' ? 'en-GB' : 'de-DE')
+    setSaveState('saved', t(lang, 'host.savedAt', { time }))
   } else {
-    setSaveState('idle', 'Stand aus dem Repo geladen — Änderungen werden gepuffert und automatisch gespeichert.')
+    setSaveState('idle', t(lang, 'host.idleLoaded'))
   }
 }
 
@@ -258,13 +286,13 @@ $('#save-now').addEventListener('click', async () => {
   if (!current) return
   const btn = $('#save-now')
   btn.disabled = true
-  btn.textContent = 'Speichere …'
+  btn.textContent = t(lang, 'host.saveNowSaving')
   const q = current.field ? `?field=${current.field}` : ''
   await api(`/api/nodes/${encodeURIComponent(current.nodeId)}/save${q}`, {
     method: 'POST',
     headers: authHeaders(),
   }).catch(() => {})
-  btn.textContent = 'Jetzt speichern'
+  btn.textContent = t(lang, 'host.saveNowIdle')
   renderStatus() // final state arrives via save-state-change broadcast
 })
 
@@ -285,10 +313,10 @@ async function start() {
       })
       const data = await res.json()
       if (res.ok) {
-        session.set({ token: data.token, name: data.displayName || 'Ticket-Nutzer' })
+        session.set({ token: data.token, name: data.displayName || t(lang, 'host.ticketUserName') })
         updateLoginBox()
       } else {
-        $('#login-msg').textContent = `✗ ${data.error || 'Ticket-Anmeldung fehlgeschlagen'}`
+        $('#login-msg').textContent = `✗ ${data.error || t(lang, 'host.ticketLoginFailedDefault')}`
       }
     } catch { /* offline — interactive login remains available */ }
     params.delete('ticket')

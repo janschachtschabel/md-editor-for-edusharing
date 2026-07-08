@@ -3,7 +3,8 @@
 // identical allowed, crossing rejected) and the keyword⇄annotation roundtrip.
 import {
   annotationsToKeywords, findAllQuoteRanges, findQuoteRange, formatKeyword, isCrossing,
-  keywordsToAnnotations, occurrenceOfIndex, parseKeyword, resolveAnnotations,
+  isValidQuote, keywordsToAnnotations, MAX_QUOTE_LENGTH, occurrenceOfIndex, parseKeyword,
+  resolveAnnotations,
 } from '../src/annotations.js'
 
 let fail = 0
@@ -41,6 +42,14 @@ check('findAllQuoteRanges: every occurrence, in order',
     === JSON.stringify([{ start: 0, end: 6 }, { start: 18, end: 24 }]))
 check('findAllQuoteRanges: no match → empty array', JSON.stringify(findAllQuoteRanges(TEXT, 'Erfurt')) === '[]')
 check('findAllQuoteRanges: empty quote → empty array', JSON.stringify(findAllQuoteRanges(TEXT, '')) === '[]')
+
+// --- quote length guard (audit L-1: unbounded quotes become oversized
+// "Name (Typ)" keywords with no client-side feedback before the round trip
+// to edu-sharing) ---------------------------------------------------------
+check('normal-length quote is valid', isValidQuote('Weimar'))
+check('empty quote is invalid', isValidQuote('') === false)
+check(`quote at exactly ${MAX_QUOTE_LENGTH} chars is valid`, isValidQuote('a'.repeat(MAX_QUOTE_LENGTH)))
+check(`quote over ${MAX_QUOTE_LENGTH} chars is invalid`, isValidQuote('a'.repeat(MAX_QUOTE_LENGTH + 1)) === false)
 
 // --- overlap validation -------------------------------------------------------
 const inst = { start: 0, end: 18 }   // "Universität Weimar"

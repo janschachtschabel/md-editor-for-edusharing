@@ -26,7 +26,9 @@ import {
 import {
   broadcastConfig, docState, hocuspocus, persistDocument,
 } from './server/collab.js'
-import { createRateLimiter, isOriginAllowed, isValidNodeId } from './server/guards.js'
+import {
+  createRateLimiter, isBasicAuthPassthrough, isOriginAllowed, isValidNodeId,
+} from './server/guards.js'
 import { resolveAuthToken, sessionStore } from './server/sessions.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -84,6 +86,21 @@ app.get('/api/config', (_req, res) => {
 
 // Rate limiter guarding the login proxy against brute force (audit F-05)
 const loginLimiter = createRateLimiter({ windowMs: LOGIN_RATE_WINDOW_MS, max: LOGIN_RATE_MAX })
+// Separate limiter for raw Basic-auth passthrough on the node routes below —
+// that path bypasses /api/login entirely and was previously unthrottled,
+// turning this server into an unlimited credential-guessing oracle against
+// the upstream repository (audit S-1).
+const basicAuthLimiter = createRateLimiter({ windowMs: LOGIN_RATE_WINDOW_MS, max: LOGIN_RATE_MAX })
+const RATE_LIMIT_MSG = { error: 'Zu viele Anmeldeversuche — bitte später erneut versuchen' }
+
+/** True if the request was throttled (and a 429 was already sent). */
+function isBasicAuthRateLimited(req, res) {
+  if (isBasicAuthPassthrough(req.headers.authorization) && !basicAuthLimiter(req.ip)) {
+    res.status(429).json(RATE_LIMIT_MSG)
+    return true
+  }
+  return false
+}
 
 /**
  * Validate a WLO login. Returns an OPAQUE server-side session token (audit
@@ -97,7 +114,7 @@ const loginLimiter = createRateLimiter({ windowMs: LOGIN_RATE_WINDOW_MS, max: LO
  */
 app.post('/api/login', async (req, res) => {
   if (!loginLimiter(req.ip)) {
-    return res.status(429).json({ error: 'Zu viele Anmeldeversuche — bitte später erneut versuchen' })
+    return res.status(429).json(RATE_LIMIT_MSG)
   }
   const { username, password, ticket } = req.body || {}
   let authHeader
@@ -130,6 +147,7 @@ app.post('/api/logout', (req, res) => {
 /** Node info + save status for the host page (session token or Basic passthrough). */
 app.get('/api/nodes/:id', async (req, res) => {
   if (!isValidNodeId(req.params.id)) return res.status(400).json({ error: 'Ungültige Node-ID' })
+  if (isBasicAuthRateLimited(req, res)) return
   const field = normalizeField(req.query.field)
   const { authHeader } = resolveAuthToken(req.headers.authorization)
   const auth = authHeader || undefined // invalid session degrades to anonymous read
@@ -161,6 +179,7 @@ async function requireWriteAccess(req, res) {
     res.status(400).json({ error: 'Ungültige Node-ID' })
     return null
   }
+  if (isBasicAuthRateLimited(req, res)) return null
   const field = normalizeField(req.query.field)
   const { authHeader } = resolveAuthToken(req.headers.authorization)
   if (authHeader === null) {

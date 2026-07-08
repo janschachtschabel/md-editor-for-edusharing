@@ -1,8 +1,10 @@
 /**
  * Pure security guards, unit-tested in isolation:
- *  - createRateLimiter: sliding-window limiter for /api/login (audit F-05)
- *  - isOriginAllowed:   Origin check for the WebSocket upgrade (audit F-06)
- *  - isValidNodeId:     node-ID format check before URL interpolation (re-audit F-B)
+ *  - createRateLimiter:      sliding-window limiter for /api/login (audit F-05)
+ *  - isOriginAllowed:        Origin check for the WebSocket upgrade (audit F-06)
+ *  - isValidNodeId:          node-ID format check before URL interpolation (re-audit F-B)
+ *  - isBasicAuthPassthrough: detects raw Basic-auth passthrough requests, which
+ *                            must be rate-limited like /api/login (audit S-1)
  */
 
 /**
@@ -60,4 +62,18 @@ const SYMBOLIC_RE = /^-[a-z]+-$/i // edu-sharing constants like -home-, -userhom
  */
 export function isValidNodeId(nodeId) {
   return typeof nodeId === 'string' && (UUID_RE.test(nodeId) || SYMBOLIC_RE.test(nodeId))
+}
+
+/**
+ * True when an Authorization header presents raw Basic credentials directly
+ * (as opposed to an opaque session token issued by /api/login). This path
+ * skips session issuance entirely, so — unlike /api/login — it was not
+ * covered by any rate limiter: callers of GET/POST /api/nodes/:id... could
+ * try unlimited username/password combinations against the upstream
+ * repository through this server (audit S-1). Callers must apply the same
+ * kind of limiter to requests where this returns true.
+ */
+export function isBasicAuthPassthrough(authorization) {
+  const raw = String(authorization || '').replace(/^Bearer /, '')
+  return raw.startsWith('Basic ')
 }

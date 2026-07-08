@@ -10,20 +10,23 @@
  *                  document dirty and emits its public event
  */
 import {
-  findQuoteRange, isCrossing, isValidType, occurrenceOfIndex, resolveAnnotations,
+  findQuoteRange, isCrossing, isValidQuote, isValidType, MAX_QUOTE_LENGTH, occurrenceOfIndex,
+  resolveAnnotations,
 } from './annotations.js'
 import { buildTypeOptions } from './entity-types.js'
 import { buildTextIndex } from './annotation-extension.js'
 import {
   closeAnnotationPopup, openManageDialog, openTagDialog, renderEntityChips,
 } from './annotation-ui.js'
+import { t } from './i18n.js'
 
 export class AnnotationController {
-  constructor({ root, entitiesEl, annotations, getEditor, onChange }) {
+  constructor({ root, entitiesEl, annotations, getEditor, getLang, onChange }) {
     this.root = root
     this.entitiesEl = entitiesEl
     this.annotations = annotations // Y.Array in the shared Yjs document
     this.getEditor = getEditor
+    this.getLang = getLang || (() => 'de')
     this.onChange = onChange
     this._observer = () => this._changed()
     this.annotations.observe(this._observer)
@@ -50,16 +53,18 @@ export class AnnotationController {
    * here. Returns an error message (quote not found / crossing) or null.
    */
   add({ quote, type, entityId = '', occurrence = 1 }) {
+    const lang = this.getLang()
     const editor = this.getEditor()
-    if (!editor || !quote || !type) return 'quote und type sind erforderlich'
+    if (!editor || !quote || !type) return t(lang, 'controller.quoteTypeRequired')
     const index = buildTextIndex(editor.state.doc)
     const range = findQuoteRange(index.text, quote, occurrence)
-    if (!range) return `Zitat nicht im Text gefunden: „${quote}"`
+    if (!range) return t(lang, 'controller.quoteNotFound', { quote })
     return this._push({ quote, type, entityId, occurrence }, range, index.text)
   }
 
   /** Toolbar action: tag the current selection via the popup dialog. */
   openTagDialog() {
+    const lang = this.getLang()
     const editor = this.getEditor()
     const { state, view } = editor
     const { from, to } = state.selection
@@ -70,13 +75,14 @@ export class AnnotationController {
     const quote = start !== null && end !== null ? index.text.slice(start, end) : ''
     if (!quote || quote.includes('\n')) {
       openTagDialog(this.root, view.coordsAtPos(from), {
-        quote: quote || '—', types: [], onSubmit: () => 'Die Auswahl darf keine Absätze überspannen.',
+        quote: quote || '—', types: [], lang, onSubmit: () => t(lang, 'controller.noBlockSpan'),
       })
       return
     }
     openTagDialog(this.root, view.coordsAtPos(from), {
       quote,
-      types: buildTypeOptions(this.raw().map((a) => a.type)),
+      types: buildTypeOptions(this.raw().map((a) => a.type), lang),
+      lang,
       onSubmit: ({ type, entityId }) => this._push(
         { quote, type, entityId, occurrence: occurrenceOfIndex(index.text, quote, start) },
         { start, end }, index.text,
@@ -90,6 +96,7 @@ export class AnnotationController {
       annotations: hits,
       canDelete: this.getEditor().isEditable,
       onDelete: (id) => this._delete(id),
+      lang: this.getLang(),
     })
   }
 
@@ -102,6 +109,7 @@ export class AnnotationController {
       canEdit: editor.isEditable,
       onSelect: (a) => this._select(a),
       onDelete: (id) => this._delete(id),
+      lang: this.getLang(),
     })
   }
 
@@ -114,12 +122,16 @@ export class AnnotationController {
 
   /** Validate (type rules, crossing rule) and append to the shared Y.Array. */
   _push({ quote, type, entityId, occurrence }, range, text) {
+    const lang = this.getLang()
+    if (!isValidQuote(quote)) {
+      return t(lang, 'controller.quoteTooLong', { max: MAX_QUOTE_LENGTH })
+    }
     if (!isValidType(type)) {
-      return 'Ungültiger Typ — Klammern sind nicht erlaubt (der Typ wird als „Name (Typ)" gespeichert).'
+      return t(lang, 'controller.invalidType')
     }
     for (const a of this.list(text)) {
       if (a.start !== null && isCrossing(range, a)) {
-        return `Kreuzt bestehendes Tag „${a.quote} (${a.type})" — erlaubt sind nur verschachtelte oder deckungsgleiche Tags.`
+        return t(lang, 'controller.crossing', { label: `${a.quote} (${a.type})` })
       }
     }
     this.annotations.push([{

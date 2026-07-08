@@ -45,7 +45,7 @@ All dependencies are permissively licensed (MIT/BSD/ISC, no copyleft) — see
 | edu-sharing binding ([server/edu-sharing-api.js](server/edu-sharing-api.js)) | storage targets, the `setProperty` detour (MDS quirk), access checks, **read-back verification** |
 | Persistence control ([server/collab.js](server/collab.js)) | buffering strategy, change detection, error retry, save-state broadcast (details below) |
 | Session & security layer ([sessions.js](server/sessions.js), [guards.js](server/guards.js)) | opaque login/ticket sessions, rate limit, WS origin check, node-ID validation |
-| Host page, 6 test suites, CI (GitHub + GitLab), Docker | reference embedding + quality assurance |
+| Host page, 9 test suites, CI (GitHub + GitLab), Docker | reference embedding + quality assurance |
 
 ## Architecture
 
@@ -105,10 +105,12 @@ Optionally create a `.env` (template: [.env.example](.env.example)):
 4. Saving requires the logged-in account to have **write permission** on the
    node — otherwise the session stays read-only (and says so honestly).
 
-Automated tests: `npm test` — 7 suites: markdown round trip (incl.
+Automated tests: `npm test` — 9 suites: markdown round trip (incl.
 tables/task lists), annotation logic (keyword roundtrip, quote search,
-crossing rule), entity-type catalog, save-bar logic, security guards, session store, and an API
-integration that runs the real server against a mocked repository.
+crossing rule, quote length limit), entity-type catalog, save-bar logic,
+security guards, session store, an API integration that runs the real server
+against a mocked repository, i18n key parity (de/en), and the annotation UI
+(dialogs incl. focus management, jsdom).
 
 ## Embedding the web component
 
@@ -127,6 +129,7 @@ nothing about edu-sharing — it only talks to the collab server.
 | `user-color` | no | cursor color (default: random) |
 | `token` | no | opaque session token from `POST /api/login`; missing (or invalid/expired) → read-only |
 | `read-only` | no | `"true"` forces read-only on the client side |
+| `lang` | no | UI language (`de`/`en`, default `de`) — toolbar, dialogs, error messages |
 
 ### Events (out, CustomEvent with `detail`)
 
@@ -313,7 +316,7 @@ src/markdown.js            markdown ⇄ HTML (identical on server + client)
 src/host.js                demo host page (reference for the Angular embedding)
 public/app-config.js       runtime configuration (backend URL for cross-origin embedding)
 public/                    HTML, CSS, built bundles
-test/                      7 test suites (npm test)
+test/                      9 test suites (npm test)
 .github/ + .gitlab-ci.yml  CI: build+test, Docker image → ghcr.io / self-hosted registry
 ```
 

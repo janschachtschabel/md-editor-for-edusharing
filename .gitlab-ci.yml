@@ -34,9 +34,10 @@ variables:
   DOCKER_IMAGE_PATH: "projects/wlo/md-collab-editor"
 
 # -----------------------------------------------------------------------------
-# Build + test — bundles must compile, all 5 test suites must pass
-# (markdown round trip, save-bar logic, guards, session store, API auth
-# integration against a mocked edu-sharing).
+# Build + test — bundles must compile, all 9 test suites must pass
+# (markdown round trip, annotations, entity types, save-bar logic, guards,
+# session store, API auth integration against a mocked edu-sharing, i18n key
+# parity, annotation UI).
 # -----------------------------------------------------------------------------
 build and test:
   stage: test

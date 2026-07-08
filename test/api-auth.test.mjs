@@ -99,6 +99,21 @@ try {
   check('/autosave without auth → 401', (await post('/api/nodes/00000000-0000-4000-8000-000000000001/autosave', {}, { enabled: false })).status === 401)
   check('/autosave with read-only auth → 403', (await post('/api/nodes/00000000-0000-4000-8000-000000000001/autosave', { Authorization: READER }, { enabled: false })).status === 403)
 
+  // S-1: Basic-auth passthrough (used above 3x: /save×2, /autosave×1) is
+  // rate-limited independently of /api/login, closing the previously
+  // unthrottled credential-guessing path against edu-sharing. Test config
+  // sets LOGIN_RATE_MAX=6, so 3 slots remain before the limiter trips.
+  {
+    const nodeId = '00000000-0000-4000-8000-000000000001'
+    let lastStatus
+    for (let i = 0; i < 3; i++) {
+      lastStatus = (await fetch(`${APP}/api/nodes/${nodeId}`, { headers: { Authorization: READER } })).status
+    }
+    check('Basic-auth passthrough GET still answers within budget', lastStatus === 200, `status=${lastStatus}`)
+    const throttled = await fetch(`${APP}/api/nodes/${nodeId}`, { headers: { Authorization: READER } })
+    check('Basic-auth passthrough blocked once its budget is exhausted (S-1)', throttled.status === 429, `status=${throttled.status}`)
+  }
+
   // F-08: login returns an opaque server-side session token, not credentials
   const loginRes = await post('/api/login', {}, { username: 'writer', password: 'pw' })
   const login = await loginRes.json()

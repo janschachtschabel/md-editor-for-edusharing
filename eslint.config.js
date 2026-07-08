@@ -22,6 +22,11 @@ export default [
     languageOptions: { globals: { ...globals.node } },
   },
   {
+    // Uses jsdom to install `document`/`window` globals for testing DOM code
+    files: ['test/annotation-ui.test.mjs'],
+    languageOptions: { globals: { ...globals.node, ...globals.browser } },
+  },
+  {
     files: ['src/**/*.js', 'public/app-config.js'],
     languageOptions: { globals: { ...globals.browser } },
   },

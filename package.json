@@ -8,7 +8,7 @@
     "build": "esbuild src/md-collab-editor.js --bundle --minify --legal-comments=external --outfile=public/md-collab-editor.js && esbuild src/host.js --bundle --minify --legal-comments=external --outfile=public/host.bundle.js",
     "start": "node server.js",
     "dev": "npm run build && node server.js",
-    "test": "node test/roundtrip.test.mjs && node test/annotations.test.mjs && node test/entity-types.test.mjs && node test/save-state.test.mjs && node test/guards.test.mjs && node test/sessions.test.mjs && node test/api-auth.test.mjs",
+    "test": "node test/roundtrip.test.mjs && node test/annotations.test.mjs && node test/entity-types.test.mjs && node test/save-state.test.mjs && node test/guards.test.mjs && node test/sessions.test.mjs && node test/api-auth.test.mjs && node test/i18n.test.mjs && node test/annotation-ui.test.mjs",
     "lint": "eslint ."
   },
   "dependencies": {
@@ -39,7 +39,8 @@
     "@eslint/js": "^10.0.1",
     "esbuild": "^0.28.1",
     "eslint": "^10.6.0",
-    "globals": "^17.7.0"
+    "globals": "^17.7.0",
+    "jsdom": "^29.1.1"
   },
   "engines": {
     "node": ">=20"

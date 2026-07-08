@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>edu-sharing · Kollaborativer Markdown-Editor (Demo)</title>
+  <title data-i18n="app.title">edu-sharing · Kollaborativer Markdown-Editor (Demo)</title>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
@@ -13,53 +13,62 @@
   <!-- ══════════ Linke Spalte: Host-Seite (Session, Auswahl, Status) ══════ -->
   <aside class="sidebar">
     <div class="brand">
-      <h1>Kompendium-Editor</h1>
-      <p>Kollaborative Bearbeitung kompendialer Texte auf edu-sharing-Knoten (WLO-Staging).</p>
+      <div class="brand-row">
+        <h1 data-i18n="brand.h1">Kompendium-Editor</h1>
+        <label class="lang-switch" data-i18n-title="lang.switchLabel" title="Sprache">
+          <span class="sr-only" data-i18n="lang.switchLabel">Sprache</span>
+          <select id="lang-switch">
+            <option value="de">Deutsch</option>
+            <option value="en">English</option>
+          </select>
+        </label>
+      </div>
+      <p data-i18n="brand.subtitle">Kollaborative Bearbeitung kompendialer Texte auf edu-sharing-Knoten (WLO-Staging).</p>
     </div>
 
     <section class="panel">
-      <h2>1 · Anmeldung</h2>
+      <h2 data-i18n="section1.h2">1 · Anmeldung</h2>
       <form id="login-form">
-        <label>Benutzername <input id="l-user" type="text" autocomplete="username" /></label>
-        <label>Passwort <input id="l-pass" type="password" autocomplete="current-password" /></label>
-        <button type="submit" class="secondary">Anmelden</button>
+        <label><span data-i18n="login.username">Benutzername</span> <input id="l-user" type="text" autocomplete="username" /></label>
+        <label><span data-i18n="login.password">Passwort</span> <input id="l-pass" type="password" autocomplete="current-password" /></label>
+        <button type="submit" class="secondary" data-i18n="login.submit">Anmelden</button>
         <span id="login-msg" class="login-msg"></span>
-        <p class="hint">WLO-Staging-Account. Ohne Anmeldung: nur Mitlesen.</p>
+        <p class="hint" data-i18n="login.hint">WLO-Staging-Account. Ohne Anmeldung: nur Mitlesen.</p>
       </form>
       <div id="login-state" hidden>
-        Angemeldet als <strong id="login-who"></strong>
-        <button id="logout-btn" type="button" class="linkish">abmelden</button>
+        <span data-i18n="login.loggedInAs">Angemeldet als</span> <strong id="login-who"></strong>
+        <button id="logout-btn" type="button" class="linkish" data-i18n="login.logout">abmelden</button>
       </div>
     </section>
 
     <section class="panel">
-      <h2>2 · Inhalt wählen</h2>
+      <h2 data-i18n="section2.h2">2 · Inhalt wählen</h2>
       <form id="open-form">
-        <label>Node-ID (Sammlung oder Inhalt)
+        <label><span data-i18n="open.nodeIdLabel">Node-ID (Sammlung oder Inhalt)</span>
           <input id="f-nodeid" type="text" value="bd898a4c-311b-48d8-9a40-bea930811c8e" required />
         </label>
-        <label>Dein Anzeigename
-          <input id="f-name" type="text" placeholder="z. B. Jan" />
+        <label><span data-i18n="open.nameLabel">Dein Anzeigename</span>
+          <input id="f-name" type="text" placeholder="z. B. Jan" data-i18n-placeholder="open.namePlaceholder" />
         </label>
         <fieldset class="field-choice">
-          <legend>Speicherziel</legend>
+          <legend data-i18n="open.targetLegend">Speicherziel</legend>
           <label class="radio"><input type="radio" name="f-field" value="" checked />
-            Kompendium-Property <code>ccm:oeh_collection_compendium_text</code></label>
+            <span data-i18n="open.targetCompendium">Kompendium-Property <code>ccm:oeh_collection_compendium_text</code></span></label>
           <label class="radio"><input type="radio" name="f-field" value="description" />
-            Beschreibungsfeld (Alternative)</label>
+            <span data-i18n="open.targetDescription">Beschreibungsfeld (Alternative)</span></label>
         </fieldset>
-        <button type="submit">Dokument öffnen</button>
+        <button type="submit" data-i18n="open.submit">Dokument öffnen</button>
       </form>
-      <p class="hint">Vorbelegt: Inhalt „Kartoffel" (ccm:io). Sammlungen funktionieren genauso — einfach eine ccm:map-Node-ID eintragen.</p>
+      <p class="hint" data-i18n="open.hint">Vorbelegt: Inhalt „Kartoffel" (ccm:io). Sammlungen funktionieren genauso — einfach eine ccm:map-Node-ID eintragen.</p>
     </section>
 
     <section class="panel" id="doc-panel" hidden>
-      <h2>3 · Dokument</h2>
+      <h2 data-i18n="section3.h2">3 · Dokument</h2>
       <div class="doc-info">
         <span id="doc-title">–</span>
         <span class="doc-meta">
           <code id="doc-id"></code>
-          <a id="render-link" href="#" target="_blank" rel="noopener" hidden>im Repo ansehen ↗</a>
+          <a id="render-link" href="#" target="_blank" rel="noopener" hidden data-i18n="doc.renderLink">im Repo ansehen ↗</a>
         </span>
         <span id="doc-target" class="doc-target"></span>
       </div>
@@ -68,30 +77,30 @@
       </div>
       <div class="save-controls">
         <div class="save-row">
-          <span id="save-led" data-state="idle" title="Speicherstatus" aria-hidden="true"></span>
-          <label class="switch" title="Automatisches Schreiben ins Repository">
+          <span id="save-led" data-state="idle" title="Speicherstatus" data-i18n-title="doc.saveLedTitle" aria-hidden="true"></span>
+          <label class="switch" title="Automatisches Schreiben ins Repository" data-i18n-title="doc.autosaveTitle">
             <input type="checkbox" id="autosave-toggle" checked />
             <span class="slider" aria-hidden="true"></span>
-            <span class="switch-label">Auto-Speichern</span>
+            <span class="switch-label" data-i18n="doc.autosaveLabel">Auto-Speichern</span>
           </label>
         </div>
-        <button id="save-now" type="button" class="secondary" disabled>Jetzt speichern</button>
+        <button id="save-now" type="button" class="secondary" disabled data-i18n="host.saveNowIdle">Jetzt speichern</button>
       </div>
-      <p id="autosave-warn" class="autosave-warn" hidden>
+      <p id="autosave-warn" class="autosave-warn" hidden data-i18n="doc.autosaveWarn">
         Auto-Speichern ist aus — ungespeicherte Änderungen gehen beim Verlassen der Sitzung verloren.
       </p>
       <p id="save-state" data-state="idle" role="status" aria-live="polite">–</p>
     </section>
 
     <p class="hint share-hint" id="share-hint" hidden>
-      Link teilen für gemeinsames Bearbeiten:<br><code id="share-url"></code>
+      <span data-i18n="host.shareLabel">Link teilen für gemeinsames Bearbeiten:</span><br><code id="share-url"></code>
     </p>
   </aside>
 
-  <!-- ══════════ Rechte Spalte: der Editor als Web Component ══════════════ -->
+  <!-- ══════════ Rechte Spalte: der Editor als Web Component ═════════════ -->
   <main class="editor-pane">
     <div id="editor-empty" class="editor-empty">
-      <p>◀ Links anmelden und einen Inhalt wählen.<br>Der Editor erscheint hier als <code>&lt;md-collab-editor&gt;</code>-Web-Component.</p>
+      <p data-i18n="editorEmpty.text">◀ Links anmelden und einen Inhalt wählen.<br>Der Editor erscheint hier als <code>&lt;md-collab-editor&gt;</code>-Web-Component.</p>
     </div>
     <div id="editor-slot"></div>
   </main>

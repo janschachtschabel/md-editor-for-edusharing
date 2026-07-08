@@ -1,6 +1,6 @@
 // Unit tests for the pure security guards: login rate limiter (F-05),
 // WebSocket origin check (F-06) and node-ID validation (re-audit F-B).
-import { createRateLimiter, isOriginAllowed, isValidNodeId } from '../server/guards.js'
+import { createRateLimiter, isBasicAuthPassthrough, isOriginAllowed, isValidNodeId } from '../server/guards.js'
 
 let fail = 0
 function check(name, ok) {
@@ -46,6 +46,17 @@ function check(name, ok) {
   check('fragment blocked', isValidNodeId('x#y') === false)
   check('empty blocked', isValidNodeId('') === false)
   check('random word blocked', isValidNodeId('kartoffel') === false)
+}
+
+// --- Basic-auth passthrough detection (audit S-1: this path bypasses the
+// login rate limiter unless callers apply one explicitly) -------------------
+{
+  const basic = 'Basic ' + Buffer.from('writer:pw').toString('base64')
+  check('raw Basic header is passthrough', isBasicAuthPassthrough(basic))
+  check('Bearer-wrapped Basic header is still passthrough', isBasicAuthPassthrough(`Bearer ${basic}`))
+  check('opaque session token is NOT passthrough', isBasicAuthPassthrough('Bearer abc123opaque') === false)
+  check('missing header is NOT passthrough', isBasicAuthPassthrough(undefined) === false)
+  check('empty header is NOT passthrough', isBasicAuthPassthrough('') === false)
 }
 
 process.exit(fail ? 1 : 0)

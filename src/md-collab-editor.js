@@ -14,6 +14,10 @@
  *                     (validated there). Without a token the server switches
  *                     the connection to read-only.
  *     read-only       "true" → editor not editable (in addition to the server gate)
+ *     lang            UI language: "de" (default) | "en". Only affects
+ *                     displayed text (toolbar, dialogs, save bar) — the
+ *                     default entity-type catalog VALUES persisted to
+ *                     edu-sharing always stay German (see entity-types.js).
  *
  *   Events (out, CustomEvent with detail):
  *     editor-ready      {editor}
@@ -48,6 +52,7 @@ import { computeSaveBar } from './save-state.js'
 import { TOOLBAR } from './toolbar.js'
 import { AnnotationDecorations } from './annotation-extension.js'
 import { AnnotationController } from './annotation-controller.js'
+import { t, setActiveLang, LANGS, DEFAULT_LANG } from './i18n.js'
 
 // User colors for carets/presence chips — all chosen for ≥4.5:1 contrast
 // with white label text (WCAG AA)
@@ -63,21 +68,25 @@ class MdCollabEditor extends HTMLElement {
     this._initialized = true
 
     const documentName = this.getAttribute('document-name')
+    // UI language for this instance ('de'|'en', default 'de') — also drives
+    // toolbar.js's tooltips via the module-level active language (setActiveLang)
+    this._lang = LANGS.includes(this.getAttribute('lang')) ? this.getAttribute('lang') : DEFAULT_LANG
+    setActiveLang(this._lang)
     if (!documentName) {
-      this.innerHTML = '<p style="color:#c00">md-collab-editor: Attribut document-name fehlt</p>'
+      this.innerHTML = `<p style="color:#c00">${t(this._lang, 'editor.missingDocumentName')}</p>`
       return
     }
     const defaultWs = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/collab`
     const wsUrl = this.getAttribute('websocket-url') || defaultWs
-    const userName = this.getAttribute('user-name') || 'Anonym'
+    const userName = this.getAttribute('user-name') || t(this._lang, 'host.anonymousName')
     const userColor = this.getAttribute('user-color') || COLORS[Math.floor(Math.random() * COLORS.length)]
     const token = this.getAttribute('token') || ''
     const readOnly = this.getAttribute('read-only') === 'true'
 
     this.classList.add('mce-root')
     this.innerHTML = `
-      <div class="mce-toolbar" part="toolbar" role="toolbar" aria-label="Textformatierung"></div>
-      <div class="mce-entities" part="entities" role="list" aria-label="Getaggte Entitäten" style="display:none"></div>
+      <div class="mce-toolbar" part="toolbar" role="toolbar" aria-label="${t(this._lang, 'editor.toolbarLabel')}"></div>
+      <div class="mce-entities" part="entities" role="list" aria-label="${t(this._lang, 'editor.entitiesLabel')}" style="display:none"></div>
       <div class="mce-editor" part="editor"></div>
     `
     this._entitiesEl = this.querySelector('.mce-entities')
@@ -94,7 +103,7 @@ class MdCollabEditor extends HTMLElement {
     this._saveBarEl.innerHTML = `
       <span class="mce-save-dot" data-state="idle" aria-hidden="true"></span>
       <span class="mce-save-text" role="status" aria-live="polite">–</span>
-      <button type="button" class="mce-save-btn" disabled>Speichern</button>
+      <button type="button" class="mce-save-btn" disabled>${t(this._lang, 'editor.saveButton')}</button>
     `
     this._saveBarEl.querySelector('.mce-save-btn').addEventListener('click', () => {
       if (!this._save.dirty || this._save.saving) return
@@ -107,7 +116,7 @@ class MdCollabEditor extends HTMLElement {
       this._saveTimeout = setTimeout(() => {
         if (this._save.saving) {
           this._save.saving = false
-          this._save.error = 'Zeitüberschreitung — bitte erneut speichern'
+          this._save.error = t(this._lang, 'editor.saveTimeoutError')
           this._renderSaveBar()
         }
       }, 20000)
@@ -145,6 +154,7 @@ class MdCollabEditor extends HTMLElement {
       entitiesEl: this._entitiesEl,
       annotations: this.provider.document.getArray('annotations'),
       getEditor: () => this.editor,
+      getLang: () => this._lang,
       onChange: () => this._onAnnotationsChanged(),
     })
 
@@ -173,7 +183,7 @@ class MdCollabEditor extends HTMLElement {
       editable: !readOnly,
       extensions: [
         ...createExtensions(),
-        Placeholder.configure({ placeholder: 'Kompendialer Text …' }),
+        Placeholder.configure({ placeholder: t(this._lang, 'editor.placeholder') }),
         AnnotationDecorations.configure({
           getAnnotations: () => this._tags.raw(),
           onAnnotationClick: (hits, event) => this._tags.handleClick(hits, event),
@@ -247,7 +257,7 @@ class MdCollabEditor extends HTMLElement {
 
   /** Programmatic tagging (AI entry point) — error message or null. */
   addAnnotation(annotation) {
-    return this._tags ? this._tags.add(annotation) : 'Editor nicht initialisiert'
+    return this._tags ? this._tags.add(annotation) : t(this._lang, 'editor.notInitialized')
   }
 
   focus() {
@@ -295,8 +305,9 @@ class MdCollabEditor extends HTMLElement {
       const btn = document.createElement('button')
       btn.type = 'button'
       btn.innerHTML = tool.label
-      btn.title = tool.title
-      btn.setAttribute('aria-label', tool.title)
+      const title = t(this._lang, tool.titleKey)
+      btn.title = title
+      btn.setAttribute('aria-label', title)
       if (tool.active) btn.setAttribute('aria-pressed', 'false')
       btn.dataset.cmd = tool.cmd
       if (tool.table) btn.dataset.table = 'true'
@@ -312,9 +323,9 @@ class MdCollabEditor extends HTMLElement {
     bar.appendChild(sep)
     this._tagBtn = document.createElement('button')
     this._tagBtn.type = 'button'
-    this._tagBtn.innerHTML = '🏷 Entität'
-    this._tagBtn.title = 'Auswahl als Entität taggen'
-    this._tagBtn.setAttribute('aria-label', 'Auswahl als Entität taggen')
+    this._tagBtn.innerHTML = t(this._lang, 'editor.tagButtonLabel')
+    this._tagBtn.title = t(this._lang, 'editor.tagButtonTitle')
+    this._tagBtn.setAttribute('aria-label', t(this._lang, 'editor.tagButtonTitle'))
     this._tagBtn.disabled = true
     this._tagBtn.addEventListener('click', () => this._tags.openTagDialog())
     bar.appendChild(this._tagBtn)
@@ -373,7 +384,7 @@ class MdCollabEditor extends HTMLElement {
     } else if (msg.event === 'save-error') {
       clearTimeout(this._saveTimeout)
       s.saving = false
-      s.error = msg.message || 'Speichern fehlgeschlagen'
+      s.error = msg.message || t(this._lang, 'editor.saveFailedFallback')
     }
     this._renderSaveBar()
     this._emit('save-state-change', { ...s })
@@ -381,7 +392,7 @@ class MdCollabEditor extends HTMLElement {
 
   _renderSaveBar() {
     if (!this._saveBarEl) return
-    const { state, label, title, canSaveNow } = computeSaveBar(this._save)
+    const { state, label, title, canSaveNow } = computeSaveBar(this._save, Date.now(), this._lang)
     this._saveBarEl.querySelector('.mce-save-dot').dataset.state = state
     const text = this._saveBarEl.querySelector('.mce-save-text')
     text.textContent = label
@@ -396,8 +407,8 @@ class MdCollabEditor extends HTMLElement {
       const chip = document.createElement('span')
       chip.className = 'mce-chip' + (u.active ? ' mce-chip-active' : '')
       chip.style.background = u.color || '#888'
-      chip.textContent = (u.name || '?') + (u.isSelf ? ' (du)' : '') + (u.active && !u.isSelf ? ' ✎' : '')
-      chip.title = u.active ? `${u.name} bearbeitet gerade` : `${u.name} ist verbunden`
+      chip.textContent = (u.name || '?') + (u.isSelf ? t(this._lang, 'users.self') : '') + (u.active && !u.isSelf ? ' ✎' : '')
+      chip.title = u.active ? t(this._lang, 'users.editingTitle', { name: u.name }) : t(this._lang, 'users.connectedTitle', { name: u.name })
       this._usersEl.appendChild(chip)
     }
   }

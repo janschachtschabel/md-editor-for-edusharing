@@ -105,10 +105,12 @@ Optional `.env` anlegen (Vorlage: [.env.example](.env.example)):
 4. Zum Speichern braucht der angemeldete Account **Write-Recht** auf dem
    Knoten — ohne bleibt die Sitzung Nur-Lesen (ehrlich angezeigt).
 
-Automatisierte Tests: `npm test` — 7 Suiten: Markdown-Roundtrip (inkl.
+Automatisierte Tests: `npm test` — 9 Suiten: Markdown-Roundtrip (inkl.
 Tabellen/Task-Listen), Annotations-Logik (Keyword-Roundtrip, Zitat-Suche,
-Kreuzungsverbot), Entitätstyp-Katalog, Save-Bar-Logik, Security-Guards, Session-Store und eine
-API-Integration, die den echten Server gegen ein Mock-Repo fährt.
+Kreuzungsverbot, Zitat-Längenbegrenzung), Entitätstyp-Katalog, Save-Bar-Logik,
+Security-Guards, Session-Store, eine API-Integration, die den echten Server
+gegen ein Mock-Repo fährt, i18n-Schlüssel-Parität (de/en) sowie die
+Annotations-UI (Dialoge inkl. Fokus-Management, jsdom).
 
 ## Web Component einbinden
 
@@ -126,6 +128,7 @@ Styles liegen in [public/style.css](public/style.css) (Abschnitte `mce-*` und
 | `user-color` | nein | Cursor-Farbe (Default: zufällig) |
 | `token` | nein | opakes Session-Token aus `POST /api/login`; ohne (oder ungültig/abgelaufen) → read-only |
 | `read-only` | nein | `"true"` erzwingt Nur-Lesen clientseitig |
+| `lang` | nein | UI-Sprache (`de`/`en`, Default `de`) — Toolbar, Dialoge, Fehlermeldungen |
 
 ### Events (raus, CustomEvent mit `detail`)
 
