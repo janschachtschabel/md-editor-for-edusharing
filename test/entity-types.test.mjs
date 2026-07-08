@@ -23,6 +23,8 @@ check('level 1 didactic types are present',
   ['Definition', 'Beispiel', 'Aufgabe', 'Merksatz', 'Lernziel'].every((t) => allDefaults.includes(t)))
 check('level 2 entity types are present',
   ['Person', 'Organisation', 'Ort', 'Fachbegriff', 'Tool', 'Fehlermeldung'].every((t) => allDefaults.includes(t)))
+check('topic hierarchy types are present',
+  ['Thema', 'Themenbereich', 'Unterthema'].every((t) => allDefaults.includes(t)))
 
 // --- suggestion builder ---------------------------------------------------------
 const options = buildTypeOptions(['Person', 'Mein Spezialtyp'])

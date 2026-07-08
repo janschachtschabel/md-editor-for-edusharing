@@ -16,7 +16,7 @@
 import { Extension } from '@tiptap/core'
 import { Plugin, PluginKey } from '@tiptap/pm/state'
 import { Decoration, DecorationSet } from '@tiptap/pm/view'
-import { resolveAnnotations } from './annotations.js'
+import { findAllQuoteRanges } from './annotations.js'
 
 const key = new PluginKey('mce-annotations')
 
@@ -57,16 +57,22 @@ export function buildTextIndex(doc) {
   }
 }
 
-/** Resolve annotations to PM ranges: [{annotation, from, to}] (unresolvable skipped). */
+/**
+ * Resolve annotations to PM ranges: [{annotation, from, to}]. A tagged
+ * entity is ONE pill/keyword, but EVERY occurrence of its exact wording is
+ * highlighted here — not just the anchor occurrence used for the chip and
+ * the keyword anchor (see findAllQuoteRanges).
+ */
 function resolveToPmRanges(annotations, doc) {
   const index = buildTextIndex(doc)
   const ranges = []
-  for (const a of resolveAnnotations(annotations, index.text)) {
-    if (a.start === null) continue
-    const from = index.toPos(a.start)
-    const to = index.toPos(a.end)
-    if (from === null || to === null || from >= to) continue
-    ranges.push({ annotation: a, from, to })
+  for (const a of annotations) {
+    for (const r of findAllQuoteRanges(index.text, a.quote)) {
+      const from = index.toPos(r.start)
+      const to = index.toPos(r.end)
+      if (from === null || to === null || from >= to) continue
+      ranges.push({ annotation: a, from, to })
+    }
   }
   return ranges
 }

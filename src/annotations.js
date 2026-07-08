@@ -61,6 +61,24 @@ export function findQuoteRange(text, quote, occurrence = 1) {
   return { start, end: start + quote.length }
 }
 
+/**
+ * All occurrences of a quote in the text (empty array if not found). Used
+ * for rendering: a tagged entity is ONE pill (one annotation, one keyword —
+ * see annotationsToKeywords), but every mention of the same wording is
+ * highlighted in the editor, not just the anchor occurrence.
+ */
+export function findAllQuoteRanges(text, quote) {
+  if (!quote) return []
+  const ranges = []
+  let start = -1
+  for (;;) {
+    start = text.indexOf(quote, start + 1)
+    if (start === -1) break
+    ranges.push({ start, end: start + quote.length })
+  }
+  return ranges
+}
+
 /** Which occurrence of `quote` starts at `index`? (inverse of findQuoteRange) */
 export function occurrenceOfIndex(text, quote, index) {
   let n = 0

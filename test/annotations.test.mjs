@@ -2,7 +2,7 @@
 // ("Name (Typ)"), quote→offset resolution, overlap validation (nested and
 // identical allowed, crossing rejected) and the keyword⇄annotation roundtrip.
 import {
-  annotationsToKeywords, findQuoteRange, formatKeyword, isCrossing,
+  annotationsToKeywords, findAllQuoteRanges, findQuoteRange, formatKeyword, isCrossing,
   keywordsToAnnotations, occurrenceOfIndex, parseKeyword, resolveAnnotations,
 } from '../src/annotations.js'
 
@@ -36,6 +36,11 @@ check('findQuoteRange: missing occurrence → null', findQuoteRange(TEXT, 'Weima
 check('findQuoteRange: hallucinated quote → null', findQuoteRange(TEXT, 'Erfurt') === null)
 check('occurrenceOfIndex: start index → occurrence number',
   occurrenceOfIndex(TEXT, 'Weimar', 18) === 2 && occurrenceOfIndex(TEXT, 'Weimar', 0) === 1)
+check('findAllQuoteRanges: every occurrence, in order',
+  JSON.stringify(findAllQuoteRanges(TEXT, 'Weimar'))
+    === JSON.stringify([{ start: 0, end: 6 }, { start: 18, end: 24 }]))
+check('findAllQuoteRanges: no match → empty array', JSON.stringify(findAllQuoteRanges(TEXT, 'Erfurt')) === '[]')
+check('findAllQuoteRanges: empty quote → empty array', JSON.stringify(findAllQuoteRanges(TEXT, '')) === '[]')
 
 // --- overlap validation -------------------------------------------------------
 const inst = { start: 0, end: 18 }   // "Universität Weimar"

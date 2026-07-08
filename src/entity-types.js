@@ -33,6 +33,7 @@ export const DEFAULT_TYPE_GROUPS = [
       'Bildungsangebot', 'Bildungsgang', 'Bildungsmaterial', 'Kompetenz',
       'Fach', 'Bildungsbereich', 'Klassenstufe', 'Schulform',
       'Anforderungsniveau', 'Bildungsstandard', 'Stundenumfang',
+      'Thema', 'Themenbereich', 'Unterthema',
     ],
   },
   {

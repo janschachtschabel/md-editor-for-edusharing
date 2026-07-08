@@ -11,6 +11,7 @@
 import { Hocuspocus } from '@hocuspocus/server'
 import { TiptapTransformer } from '@hocuspocus/transformer'
 import { generateHTML, generateJSON } from '@tiptap/html'
+import * as Y from 'yjs'
 import { createExtensions } from '../src/extensions.js'
 import { markdownToHtml, htmlToMarkdown } from '../src/markdown.js'
 import {
@@ -29,6 +30,25 @@ const extensions = createExtensions()
 export const docState = new Map() // documentName → {title, mode, dirty, lastSavedAt, …}
 /** Last valid user auth per document — used for loading/saving. */
 export const docAuth = new Map() // documentName → Basic auth header
+
+/**
+ * Last known Yjs state per document, kept across the unload/reload cycle
+ * (i.e. it survives all clients disconnecting, but not a server restart).
+ *
+ * Why this is needed: onLoadDocument used to always rebuild a Y.Doc from the
+ * repository's markdown on every load. A rebuilt doc is a structurally NEW
+ * Y.Doc — even with identical text — because Yjs identifies insertions by
+ * (clientID, clock), not by content. If a client's local doc was still
+ * "live" (e.g. a brief WebSocket reconnect, not a full page reload) while
+ * the server had unloaded and later rebuilt the document, merging the two
+ * duplicated every insertion: text AND entity annotations appeared twice.
+ * Restoring the exact previous Yjs state via applyUpdate is idempotent with
+ * an already-live client and avoids this. The cached markdown lets us
+ * detect an external edit (repo changed while nobody had the doc open) and
+ * fall back to a fresh rebuild in that case — safe because no live client
+ * exists then to duplicate against.
+ */
+const docSnapshots = new Map() // documentName → {update: Uint8Array, markdown: string}
 
 export function resolveAuth(documentName) {
   return docAuth.get(documentName) ?? ENV_AUTH ?? null
@@ -84,6 +104,10 @@ export function broadcastConfig(documentName, document) {
  */
 export async function persistDocument(documentName, document, manual = false) {
   const state = docState.get(documentName)
+  const markdown = ydocToMarkdown(document)
+  // Snapshot the live Yjs state on every store attempt (this also runs
+  // immediately before the document is unloaded) — see docSnapshots above.
+  if (state) docSnapshots.set(documentName, { update: Y.encodeStateAsUpdate(document), markdown })
   if (!state || state.contentBlocked) {
     if (manual) broadcast(document, { event: 'save-error', message: 'Dieser Knoten kann nicht bearbeitet werden.' })
     return
@@ -102,7 +126,6 @@ export async function persistDocument(documentName, document, manual = false) {
     if (manual) broadcast(document, { event: 'save-error', message: 'Der angemeldete Account hat kein Schreibrecht auf diesen Knoten.' })
     return
   }
-  const markdown = ydocToMarkdown(document)
   // Entity annotations (shared Y.Array) → general keywords "Name (Typ)";
   // plain keywords from the repository are preserved
   const keywords = annotationsToKeywords(document.getArray('annotations').toArray(), state.lastSavedKeywords)
@@ -221,6 +244,18 @@ export const hocuspocus = new Hocuspocus({
     })
     // Only seed initially — if the Yjs doc already has content, don't overwrite.
     if (document.getXmlFragment('default').length > 0) return document
+
+    // Prefer the last known Yjs state for this document over rebuilding one
+    // from markdown — see docSnapshots for why a rebuild can duplicate
+    // content on a reconnect. Only reuse it while the repo text still
+    // matches what we last saw (otherwise the repo was edited externally
+    // while unloaded — safe to rebuild fresh since no live client exists then).
+    const snapshot = docSnapshots.get(documentName)
+    if (snapshot && snapshot.markdown === markdown) {
+      Y.applyUpdate(document, snapshot.update)
+      console.log(`[load] ${documentName} "${info.title}" — restored from cached Yjs state (reconnect, no rebuild)`)
+      return document
+    }
 
     const ydoc = markdownToYdoc(markdown)
     // Re-anchor stored entity keywords ("Name (Typ)") as annotations via

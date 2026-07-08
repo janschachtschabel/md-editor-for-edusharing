@@ -193,3 +193,22 @@ Implementierung, keine Drift.
   unterscheiden.
 - **Yjs Relative Positions** als sekundärer Anker für noch robustere
   Verankerung bei starkem Umformulieren.
+- **Mehrfachvorkommen im Editor** — eine Entität ist genau eine Pille/ein
+  Keyword (Anker = Zitat + `occurrence`), aber im Editor werden ALLE
+  Vorkommen des Zitat-Wortlauts hervorgehoben (`findAllQuoteRanges` in
+  `annotation-extension.js`). Zwei unterschiedlich getypte Tags mit
+  identischem Wortlaut würden sich an denselben Stellen überlagern — ein
+  bewusst nicht abgefangener Grenzfall.
+- **Yjs-Zustands-Cache pro Prozesslaufzeit** — `server/collab.js` hält den
+  zuletzt bekannten Yjs-Zustand jedes Dokuments (`docSnapshots`) über das
+  Entladen (letzter Client trennt Verbindung) hinweg vor und stellt ihn beim
+  nächsten Laden per `Y.applyUpdate` wieder her, statt aus dem Markdown einen
+  neuen Y.Doc zu bauen. Grund: ein frisch gebauter Y.Doc ist strukturell ein
+  anderes Dokument (Yjs identifiziert Einfügungen über `(clientID, clock)`,
+  nicht über Inhalt) — traf ein noch "lebender" Client (kurzer
+  WebSocket-Reconnect, kein Seitenneuladen) auf einen neu gebauten Server-Y.Doc,
+  wurden Text UND Entitäten dupliziert. Der Cache überlebt keinen
+  Server-Neustart (rein In-Memory) und wird verworfen, sobald sich das
+  Markdown im Repository seit dem letzten Snapshot geändert hat (dann ist ein
+  Neuaufbau sicher, weil kein lebender Client existiert, mit dem dupliziert
+  werden könnte).

@@ -76,11 +76,13 @@ $('#login-form').addEventListener('submit', async (e) => {
 })
 
 $('#logout-btn').addEventListener('click', async () => {
-  // Revoke the server-side session, then drop the local handle
+  // Revoke the server-side session, then drop the local handle. The editor
+  // is closed rather than reopened read-only/anonymous — logging out ends
+  // the session, it should not silently fall back to viewing.
   await api('/api/logout', { method: 'POST', headers: authHeaders() }).catch(() => {})
   session.clear()
   updateLoginBox()
-  if (current) openDocument(current.nodeId, current.field)
+  closeDocument()
 })
 
 function updateLoginBox() {
@@ -156,6 +158,25 @@ function openDocument(nodeId, field) {
   clearInterval(statusTimer)
   refreshNodeInfo()
   statusTimer = setInterval(refreshNodeInfo, NODE_INFO_POLL_MS)
+}
+
+/**
+ * Tear down the open document: disposes the <md-collab-editor> (disconnects
+ * provider + editor, same as swapping documents), resets the sidebar to its
+ * initial state and drops the shareable URL. Used on logout — no read-only
+ * fallback view, the session end must actually stop further interaction.
+ */
+function closeDocument() {
+  current = null
+  nodeInfo = null
+  liveSave = null
+  clearInterval(statusTimer)
+  statusTimer = null
+  $('#editor-slot').innerHTML = ''
+  $('#editor-empty').hidden = false
+  $('#doc-panel').hidden = true
+  $('#share-hint').hidden = true
+  history.replaceState(null, '', location.pathname)
 }
 
 // -------------------------------------------------------------- Status ---
