@@ -17,6 +17,12 @@ wiring stay with the host.
 All dependencies are permissively licensed (MIT/BSD/ISC, no copyleft) — see
 [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
 
+> 📘 **For developers productionizing/integrating the code:** the detailed
+> [developer guide](docs/ENTWICKLERLEITFADEN.md) (German) covers stack rationale,
+> reused vs. self-built, data flow, auth, security/scaling and Angular embedding;
+> the semantic-tagging design rationale lives in
+> [SEMANTISCHES-TAGGING.md](docs/SEMANTISCHES-TAGGING.md) (German).
+
 ## Reused off the shelf vs. built in this project
 
 **Taken unchanged from the libraries (configuration only):**
@@ -99,8 +105,9 @@ Optionally create a `.env` (template: [.env.example](.env.example)):
 4. Saving requires the logged-in account to have **write permission** on the
    node — otherwise the session stays read-only (and says so honestly).
 
-Automated tests: `npm test` — 6 suites: markdown round trip (incl.
-tables/task lists), save-bar logic, security guards, session store, and an API
+Automated tests: `npm test` — 7 suites: markdown round trip (incl.
+tables/task lists), annotation logic (keyword roundtrip, quote search,
+crossing rule), entity-type catalog, save-bar logic, security guards, session store, and an API
 integration that runs the real server against a mocked repository.
 
 ## Embedding the web component
@@ -130,9 +137,12 @@ nothing about edu-sharing — it only talks to the collab server.
 | `status-change` | `{status}` | `connecting` / `connected` / `disconnected` |
 | `users-change` | `{users:[{name,color,isSelf,active}]}` | presence incl. "currently typing" |
 | `save-state-change` | `{dirty, saving, lastSavedAt, …}` | save state (server broadcast) |
+| `annotations-change` | `{annotations:[{id,quote,occurrence,type,entityId,start,end}]}` | semantic tags (standoff, offsets resolved against the current markdown) |
 | `synced` | `{}` | initial synchronization finished |
 
-Methods: `getMarkdown(): string`, `focus()`.
+Methods: `getMarkdown(): string`, `getAnnotations()`,
+`addAnnotation({quote, type, entityId?, occurrence?})` (programmatic tagging,
+e.g. for AI results — returns an error message or `null`), `focus()`.
 
 ### Example: plain HTML
 
@@ -180,6 +190,31 @@ File content is **never** touched — everything is stored in metadata:
 |---|---|---|
 | Default (`ccm:map` **and** `ccm:io`) | `ccm:oeh_collection_compendium_text` | `POST /property` (setProperty) |
 | Alternative (`:description`) | `cm:description` + `cclom:general_description` | `PUT /metadata` |
+| Entity tags | `cclom:general_keyword` (form `Name (Type)`) | `POST /property` (setProperty) |
+
+### Semantic tagging (standoff annotations)
+
+Entities in the text can be marked and semantically tagged — **without any
+markup entering the markdown** (standoff principle: the text stays a clean AI
+data source). The full design rationale (standoff vs. inline markup, quote
+anchors vs. offsets/relative positions, overlap rules, keyword roundtrip) is
+documented in [docs/SEMANTISCHES-TAGGING.md](docs/SEMANTISCHES-TAGGING.md). Select text → toolbar button "🏷 Entität" → assign a type,
+optional entity ID. The type input suggests a **default catalog**
+([src/entity-types.js](src/entity-types.js), two levels: didactic knowledge
+kinds like `Definition`/`Merksatz` and entity types like `Person`/
+`Fachbegriff`/`Tool`, grouped by domain) plus types already used in the
+document — **free custom types stay allowed** (parentheses are rejected
+because the type is persisted as "Name (Typ)"). Tagged spans are rendered
+as pure decorations; clicking one shows/deletes its tags; an entity bar below
+the toolbar lists all tags as chips. Data model: `{id, quote, occurrence,
+type, entityId?}` in a dedicated `Y.Array` inside the same Yjs document
+(collaboration-safe); spans are anchored by **quote + n-th occurrence** —
+offsets are always derived by deterministic string search ("quotes are for
+the AI, offsets are for the code"). Nested and identical spans are allowed,
+crossing spans are rejected. On save, entities are written as general
+keywords in the form **`Weimar (Stadt)`** (read-back verified); on load,
+keywords matching that pattern are parsed, re-anchored via quote search and
+displayed — plain keywords are preserved untouched.
 
 Two quirks verified on staging shaped the design:
 
@@ -268,12 +303,17 @@ server/sessions.js         server-side session store (opaque tokens, TTL)
 src/md-collab-editor.js    web component
 src/toolbar.js             toolbar definition
 src/save-state.js          save-bar logic (pure, unit-tested)
+src/annotations.js         semantic tagging — pure logic (unit-tested)
+src/entity-types.js        default entity-type catalog (unit-tested)
+src/annotation-extension.js tag rendering as ProseMirror decorations
+src/annotation-ui.js       tag dialogs + entity chips bar
+src/annotation-controller.js annotation feature controller (Y.Array, validation, orchestration)
 src/extensions.js          TipTap extension set (identical on server + client)
 src/markdown.js            markdown ⇄ HTML (identical on server + client)
 src/host.js                demo host page (reference for the Angular embedding)
 public/app-config.js       runtime configuration (backend URL for cross-origin embedding)
 public/                    HTML, CSS, built bundles
-test/                      6 test suites (npm test)
+test/                      7 test suites (npm test)
 .github/ + .gitlab-ci.yml  CI: build+test, Docker image → ghcr.io / self-hosted registry
 ```
 

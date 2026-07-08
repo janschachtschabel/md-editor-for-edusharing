@@ -436,3 +436,100 @@ md-collab-editor.mce-root { display: flex; flex-direction: column; flex: 1; }
   white-space: nowrap;
   user-select: none;
 }
+
+/* ------------------------------ Semantisches Tagging (Standoff) --------- */
+/* Getaggte Stelle: reine Decoration — das Dokument/Markdown bleibt sauber */
+.tiptap .mce-entity {
+  background: rgba(37, 99, 235, .09);
+  border-bottom: 2px dotted #2563eb;
+  border-radius: 2px;
+  cursor: pointer;
+}
+/* Verschachtelte/deckungsgleiche Tags sichtbar machen */
+.tiptap .mce-entity .mce-entity { background: rgba(37, 99, 235, .17); }
+
+/* Entitäten-Leiste unter der Toolbar: alle Tags des Dokuments als Chips */
+.mce-entities {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .3rem;
+  align-items: center;
+  padding: .35rem .75rem;
+  border-bottom: 1px solid var(--border);
+  background: #fbfcfd;
+  font-size: .74rem;
+}
+.mce-entity-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: .1rem;
+  border: 1px solid #bfdbfe;
+  background: #eff6ff;
+  border-radius: 99px;
+  padding: 0 .2rem 0 0;
+  white-space: nowrap;
+}
+.mce-entity-chip.mce-entity-orphan { border-color: var(--border); background: #f3f4f6; opacity: .65; }
+.mce-entity-label, .mce-entity-del {
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: inherit;
+  color: #1d4ed8;
+  padding: .12rem .2rem .12rem .5rem;
+  border-radius: 99px;
+}
+.mce-entity-orphan .mce-entity-label { color: var(--muted); }
+.mce-entity-del { color: var(--muted); padding: .12rem .35rem; }
+.mce-entity-del:hover { color: #e5484d; }
+.mce-entity-label:focus-visible, .mce-entity-del:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* Tag-Popup (Anlegen/Verwalten) — position: fixed, an der Auswahl/Maus */
+.mce-tag-popup {
+  position: fixed;
+  z-index: 50;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .14);
+  padding: .7rem .8rem;
+  font-size: .8rem;
+  min-width: 240px;
+  max-width: 340px;
+}
+.mce-tag-popup label { display: block; margin: .4rem 0 .15rem; font-weight: 600; }
+.mce-tag-popup .mce-tag-opt { font-weight: 400; color: var(--muted); }
+.mce-tag-popup input {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: .3rem .45rem;
+  font-size: .8rem;
+}
+.mce-tag-quote {
+  color: var(--muted);
+  font-style: italic;
+  margin-bottom: .2rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mce-tag-title { font-weight: 600; margin-bottom: .35rem; }
+.mce-tag-error { color: #e5484d; margin-top: .35rem; min-height: 1em; }
+.mce-tag-actions { display: flex; gap: .4rem; margin-top: .5rem; justify-content: flex-end; }
+.mce-tag-actions button, .mce-tag-del {
+  border: 1px solid var(--border);
+  background: #fff;
+  border-radius: 6px;
+  padding: .25rem .6rem;
+  cursor: pointer;
+  font-size: .76rem;
+}
+.mce-tag-ok { font-weight: 600; border-color: var(--accent) !important; color: var(--accent); }
+.mce-tag-row { display: flex; align-items: center; gap: .5rem; justify-content: space-between; padding: .15rem 0; }
+.mce-tag-del { padding: .1rem .4rem; }
+.mce-tag-del:hover { color: #e5484d; border-color: #e5484d; }

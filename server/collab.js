@@ -18,8 +18,9 @@ import {
   SAVE_DEBOUNCE_MS, SAVE_MAX_DEBOUNCE_MS, SAVE_RETRY_MS,
 } from './config.js'
 import {
-  getNodeInfo, loadMarkdown, saveMarkdown, parseDocumentName,
+  getNodeInfo, loadMarkdown, saveKeywords, saveMarkdown, parseDocumentName,
 } from './edu-sharing-api.js'
+import { annotationsToKeywords, keywordsToAnnotations } from '../src/annotations.js'
 import { resolveAuthToken } from './sessions.js'
 
 const extensions = createExtensions()
@@ -47,6 +48,13 @@ function ydocToMarkdown(document) {
 }
 
 // ------------------------------------------------------------ Broadcast ---
+/** Compare keyword lists; `unordered` ignores order (repo may reorder values). */
+function sameList(a, b, unordered = false) {
+  const x = unordered ? [...(a || [])].sort() : (a || [])
+  const y = unordered ? [...(b || [])].sort() : (b || [])
+  return x.length === y.length && x.every((v, i) => v === y[i])
+}
+
 /** Stateless broadcast to all connected clients of a document. */
 function broadcast(document, obj) {
   try { document.broadcastStateless(JSON.stringify(obj)) } catch { /* doc may already be unloaded */ }
@@ -95,30 +103,39 @@ export async function persistDocument(documentName, document, manual = false) {
     return
   }
   const markdown = ydocToMarkdown(document)
+  // Entity annotations (shared Y.Array) → general keywords "Name (Typ)";
+  // plain keywords from the repository are preserved
+  const keywords = annotationsToKeywords(document.getArray('annotations').toArray(), state.lastSavedKeywords)
+  const markdownChanged = markdown !== state.lastSavedMarkdown
+  const keywordsChanged = !sameList(keywords, state.lastSavedKeywords)
   // Change detection: an identical state (e.g. formatting without markdown
   // effect, cursor moves) produces no repo write
-  if (markdown === state.lastSavedMarkdown) {
+  if (!markdownChanged && !keywordsChanged) {
     state.dirty = false
     broadcast(document, { event: 'saved', at: state.lastSavedAt, noop: true })
     return
   }
   try {
-    await saveMarkdown(state.writeTarget, state.mode, markdown, auth)
+    if (markdownChanged) await saveMarkdown(state.writeTarget, state.mode, markdown, auth)
+    if (keywordsChanged) await saveKeywords(state.writeTarget, keywords, auth)
     // Read-back verification: edu-sharing can return 200 and still drop
     // silently — "saved" is only reported after a confirmed read-back
     const { field } = parseDocumentName(documentName)
     const verify = await getNodeInfo(state.writeTarget, field, auth)
-    if (loadMarkdown(verify) !== markdown) {
+    const markdownOk = !markdownChanged || loadMarkdown(verify) === markdown
+    const keywordsOk = !keywordsChanged || sameList(verify.keywords, keywords, true)
+    if (!markdownOk || !keywordsOk) {
       state.lastError = 'Repo hat die Änderung nicht übernommen (Antwort 200, aber nichts gespeichert) — Schreibrecht bzw. Property-Definition prüfen.'
-      console.error(`[save] VERIFICATION FAILED ${documentName} → ${state.writeTarget} [${state.mode}]`)
+      console.error(`[save] VERIFICATION FAILED ${documentName} → ${state.writeTarget} [${state.mode}] (markdown ${markdownOk ? 'ok' : 'FAILED'}, keywords ${keywordsOk ? 'ok' : 'FAILED'})`)
       broadcast(document, { event: 'save-error', message: state.lastError })
       return // deterministic failure — no retry
     }
     state.lastSavedMarkdown = markdown
+    state.lastSavedKeywords = keywords
     state.lastSavedAt = new Date().toISOString()
     state.lastError = null
     state.dirty = false
-    console.log(`[save] ${documentName} → ${state.writeTarget} [${state.mode}] (${markdown.length} chars, verified)`)
+    console.log(`[save] ${documentName} → ${state.writeTarget} [${state.mode}] (${markdown.length} chars, ${keywords.length} keywords, verified)`)
     broadcast(document, { event: 'saved', at: state.lastSavedAt })
   } catch (err) {
     state.lastError = err.message
@@ -194,6 +211,7 @@ export const hocuspocus = new Hocuspocus({
       canRepoWrite: (info.access || []).includes('Write'),
       writeTarget: info.originalId || nodeId,
       lastSavedMarkdown: markdown, // baseline for change detection
+      lastSavedKeywords: info.keywords || [], // baseline incl. plain keywords
       lastSavedAt: null,
       lastChangedAt: null,
       lastError: null,
@@ -204,8 +222,13 @@ export const hocuspocus = new Hocuspocus({
     // Only seed initially — if the Yjs doc already has content, don't overwrite.
     if (document.getXmlFragment('default').length > 0) return document
 
-    console.log(`[load] ${documentName} "${info.title}" — mode ${info.mode}, ${markdown.length} chars preloaded`)
-    return markdownToYdoc(markdown)
+    const ydoc = markdownToYdoc(markdown)
+    // Re-anchor stored entity keywords ("Name (Typ)") as annotations via
+    // quote search in the text — entities whose quote is gone are skipped
+    const annotations = keywordsToAnnotations(info.keywords || [], markdown)
+    if (annotations.length) ydoc.getArray('annotations').push(annotations)
+    console.log(`[load] ${documentName} "${info.title}" — mode ${info.mode}, ${markdown.length} chars, ${annotations.length} entities preloaded`)
+    return ydoc
   },
 
   /** Fires on every change (no debounce) — only maintains the buffer state. */

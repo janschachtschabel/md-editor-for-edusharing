@@ -11,6 +11,8 @@ import { EDU_BASE, EDU_REST, EDU_TIMEOUT_MS, ENV_AUTH } from './config.js'
 import { isValidNodeId } from './guards.js'
 
 export const COMPENDIUM_PROP = 'ccm:oeh_collection_compendium_text'
+/** Entity annotations are persisted as general keywords: "Weimar (Stadt)". */
+export const KEYWORD_PROP = 'cclom:general_keyword'
 
 /** Allowed storage-target flags; anything else → default (compendium). */
 export function normalizeField(field) {
@@ -139,12 +141,33 @@ export async function getNodeInfo(nodeId, field = '', auth = undefined) {
     renderUrl: `${EDU_BASE}/edu-sharing/components/render/${nodeId}`,
     compendium: (props[COMPENDIUM_PROP] || [''])[0] || '',
     description: (props['cclom:general_description'] || props['cm:description'] || [''])[0] || '',
+    keywords: props[KEYWORD_PROP] || [],
   }
 }
 
 /** Extract the markdown text from a getNodeInfo response (depending on mode). */
 export function loadMarkdown(info) {
   return info.mode === 'description' ? info.description : info.compendium
+}
+
+/**
+ * Set a (possibly multi-value) property via the dedicated setProperty
+ * endpoint. IMPORTANT: PUT /metadata filters properties against the MDS —
+ * undefined properties get SILENTLY dropped (200 OK, nothing stored;
+ * verified on staging 07/2026). setProperty bypasses the MDS filter.
+ */
+async function setProperty(nodeId, property, values, auth) {
+  await eduFetch(`/node/v1/nodes/-home-/${nodeId}/property?property=${encodeURIComponent(property)}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(values),
+    auth,
+  })
+}
+
+/** Write the general keywords (entity annotations serialized as "Name (Typ)"). */
+export async function saveKeywords(nodeId, keywords, auth) {
+  await setProperty(nodeId, KEYWORD_PROP, keywords, auth)
 }
 
 /**
@@ -156,16 +179,7 @@ export function loadMarkdown(info) {
  */
 export async function saveMarkdown(nodeId, mode, markdown, auth) {
   if (mode === 'compendium') {
-    // IMPORTANT: PUT /metadata filters properties against the MDS — the
-    // compendium property is not defined there and gets SILENTLY dropped
-    // (200 OK, nothing stored; verified on staging 07/2026).
-    // The dedicated setProperty endpoint bypasses the MDS filter.
-    await eduFetch(`/node/v1/nodes/-home-/${nodeId}/property?property=${encodeURIComponent(COMPENDIUM_PROP)}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify([markdown]),
-      auth,
-    })
+    await setProperty(nodeId, COMPENDIUM_PROP, [markdown], auth)
     return
   }
   // mode 'description': write both namespaces (otherwise the edu-sharing UI

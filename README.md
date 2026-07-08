@@ -17,6 +17,12 @@ Persistenz-Anbindung bleiben beim Host.
 Alle Abhängigkeiten sind permissiv lizenziert (MIT/BSD/ISC, kein Copyleft) —
 siehe [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
 
+> 📘 **Für Entwickler:innen, die den Code produktiv machen/integrieren:** der
+> ausführliche [Entwicklerleitfaden](docs/ENTWICKLERLEITFADEN.md) (Stack-Begründung,
+> nachgenutzt vs. selbst gebaut, Datenfluss, Auth, Sicherheit/Skalierung,
+> Angular-Einbettung) sowie die Design-Doku des semantischen Taggings:
+> [SEMANTISCHES-TAGGING.md](docs/SEMANTISCHES-TAGGING.md).
+
 ## Fertig nachgenutzt vs. Eigenentwicklung
 
 **Unverändert aus den Bibliotheken übernommen (nur konfiguriert):**
@@ -99,8 +105,9 @@ Optional `.env` anlegen (Vorlage: [.env.example](.env.example)):
 4. Zum Speichern braucht der angemeldete Account **Write-Recht** auf dem
    Knoten — ohne bleibt die Sitzung Nur-Lesen (ehrlich angezeigt).
 
-Automatisierte Tests: `npm test` — 6 Suiten: Markdown-Roundtrip (inkl.
-Tabellen/Task-Listen), Save-Bar-Logik, Security-Guards, Session-Store und eine
+Automatisierte Tests: `npm test` — 7 Suiten: Markdown-Roundtrip (inkl.
+Tabellen/Task-Listen), Annotations-Logik (Keyword-Roundtrip, Zitat-Suche,
+Kreuzungsverbot), Entitätstyp-Katalog, Save-Bar-Logik, Security-Guards, Session-Store und eine
 API-Integration, die den echten Server gegen ein Mock-Repo fährt.
 
 ## Web Component einbinden
@@ -129,9 +136,12 @@ Styles liegen in [public/style.css](public/style.css) (Abschnitte `mce-*` und
 | `status-change` | `{status}` | `connecting` / `connected` / `disconnected` |
 | `users-change` | `{users:[{name,color,isSelf,active}]}` | Presence inkl. „tippt gerade" |
 | `save-state-change` | `{dirty, saving, lastSavedAt, …}` | Speicherzustand (Server-Broadcast) |
+| `annotations-change` | `{annotations:[{id,quote,occurrence,type,entityId,start,end}]}` | semantische Tags (Standoff, Offsets gegen das aktuelle Markdown) |
 | `synced` | `{}` | initiale Synchronisation abgeschlossen |
 
-Methoden: `getMarkdown(): string`, `focus()`.
+Methoden: `getMarkdown(): string`, `getAnnotations()`,
+`addAnnotation({quote, type, entityId?, occurrence?})` (programmatisches
+Tagging, z. B. für KI-Ergebnisse — liefert Fehlermeldung oder `null`), `focus()`.
 
 ### Beispiel: pures HTML
 
@@ -171,6 +181,46 @@ import { CUSTOM_ELEMENTS_SCHEMA } from '@angular/core'
 Die Host-Seite dieser Demo ([src/host.js](src/host.js)) nutzt die Komponente
 exakt über diese Schnittstelle und dient als Referenzimplementierung.
 
+## Semantisches Tagging (Standoff-Annotationen)
+
+Entitäten im Text können markiert und semantisch vertaggt werden — **ohne dass
+Markierungszeichen ins Markdown gelangen** (Standoff-Prinzip: der Text bleibt
+saubere KI-Datengrundlage). Die vollständige Design-Begründung (Standoff vs.
+Inline-Markup, Zitat-Anker vs. Offsets/Relative Positions, Überlappungsregeln,
+Keyword-Roundtrip) steht in
+**[docs/SEMANTISCHES-TAGGING.md](docs/SEMANTISCHES-TAGGING.md)**.
+
+- **Bedienung:** Text auswählen → Toolbar-Button „🏷 Entität" → Typ eingeben,
+  optional Entity-ID. Die Typ-Eingabe schlägt einen **Default-Katalog** vor
+  ([src/entity-types.js](src/entity-types.js), zwei Ebenen: Didaktik/Wissensart
+  wie `Definition`/`Merksatz` und Entitätstypen wie `Person`/`Fachbegriff`/
+  `Tool`, gruppiert nach Domäne) plus bereits im Dokument verwendete Typen —
+  **freie Typen bleiben erlaubt** (nur Klammern sind verboten, da der Typ als
+  „Name (Typ)" gespeichert wird). Getaggte
+  Stellen werden dezent hervorgehoben (reine Decorations); Klick auf eine
+  Stelle zeigt die dortigen Tags mit Löschen-Option. Die **Entitäten-Leiste**
+  unter der Toolbar listet alle Tags als Chips (Klick = Stelle anspringen,
+  ✕ = entfernen).
+- **Datenmodell:** `{id, quote, occurrence, type, entityId?}` in einer eigenen
+  `Y.Array` im selben Yjs-Dokument (kollaborationsfest). Verankert wird über
+  **Zitat + n-tes Vorkommen** — Offsets berechnet der Code deterministisch per
+  String-Suche („Zitate für die KI, Offsets für den Code"). Überlappung:
+  verschachtelt und deckungsgleich erlaubt, **kreuzend wird abgelehnt**.
+- **Persistenz:** Entitäten werden beim Speichern als General Keywords in der
+  Form **`Weimar (Stadt)`** geschrieben (`cclom:general_keyword`, via
+  setProperty). Beim Laden werden Keywords in diesem Muster wieder eingelesen,
+  per Zitat-Suche im Text verankert und angezeigt; Keywords ohne Muster
+  bleiben unangetastet erhalten. Keywords werden — wie das Markdown — per
+  Read-Back verifiziert.
+- **KI-Anbindung:** `addAnnotation({quote, type})` nimmt KI-Ausgaben im
+  Zitat-plus-Typ-Format entgegen (nicht auffindbare Zitate werden mit
+  Fehlermeldung abgelehnt — eingebaute Halluzinations-Prüfung);
+  `getAnnotations()` exportiert Zitat, Stelle (Start/Ende im Markdown) und Typ.
+- **Grenzen (Demo-Stand):** `entityId` lebt nur im Yjs-Dokument (Keywords
+  tragen Name+Typ); wird das Zitat aus dem Text gelöscht, erscheint das Tag
+  als „verwaist" in der Leiste und bleibt als Keyword erhalten, bis es
+  entfernt wird.
+
 ## Speicherziele & edu-sharing-Besonderheiten
 
 Datei-Content wird **nie** angefasst — gespeichert wird in Metadaten:
@@ -179,6 +229,7 @@ Datei-Content wird **nie** angefasst — gespeichert wird in Metadaten:
 |---|---|---|
 | Standard (`ccm:map` **und** `ccm:io`) | `ccm:oeh_collection_compendium_text` | `POST /property` (setProperty) |
 | Alternative (`:description`) | `cm:description` + `cclom:general_description` | `PUT /metadata` |
+| Entitäten-Tags | `cclom:general_keyword` (Form `Name (Typ)`) | `POST /property` (setProperty) |
 
 Zwei auf der Staging verifizierte Quirks bestimmen das Design:
 
@@ -268,12 +319,17 @@ server/sessions.js         Server-seitiger Session-Store (opake Tokens, TTL)
 src/md-collab-editor.js    Web Component
 src/toolbar.js             Toolbar-Definition
 src/save-state.js          Save-Bar-Logik (pur, getestet)
+src/annotations.js         Semantisches Tagging — pure Logik (pur, getestet)
+src/entity-types.js        Default-Katalog der Entitätstypen (pur, getestet)
+src/annotation-extension.js Tag-Anzeige als ProseMirror-Decorations
+src/annotation-ui.js       Tag-Dialoge + Entitäten-Leiste
+src/annotation-controller.js Feature-Controller (Y.Array, Validierung, Orchestrierung)
 src/extensions.js          TipTap-Extension-Set (Server + Client identisch)
 src/markdown.js            Markdown ⇄ HTML (Server + Client identisch)
 src/host.js                Demo-Host-Seite (Referenz für die Angular-Einbettung)
 public/app-config.js       Laufzeit-Konfiguration (Backend-URL bei Cross-Origin-Einbettung)
 public/                    HTML, CSS, gebaute Bundles
-test/                      6 Testsuiten (npm test)
+test/                      7 Testsuiten (npm test)
 .github/ + .gitlab-ci.yml  CI: Build+Test, Docker-Image → ghcr.io bzw. self-hosted Registry
 ```
 

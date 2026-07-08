@@ -25,6 +25,12 @@
  *
  *   Methods:
  *     getMarkdown(): string
+ *     getAnnotations(): [{id, quote, occurrence, type, entityId, start, end}]
+ *                       — standoff annotations, offsets resolved against the
+ *                         current markdown (start/end null = quote not found)
+ *     addAnnotation({quote, type, entityId?, occurrence?}): string|null
+ *                       — programmatic tagging (e.g. AI results); returns an
+ *                         error message or null on success
  *     focus()
  *
  *   Built-in UI (right side of the toolbar): presence chips of connected users
@@ -40,6 +46,8 @@ import { createExtensions } from './extensions.js'
 import { htmlToMarkdown } from './markdown.js'
 import { computeSaveBar } from './save-state.js'
 import { TOOLBAR } from './toolbar.js'
+import { AnnotationDecorations } from './annotation-extension.js'
+import { AnnotationController } from './annotation-controller.js'
 
 // User colors for carets/presence chips — all chosen for ≥4.5:1 contrast
 // with white label text (WCAG AA)
@@ -69,8 +77,10 @@ class MdCollabEditor extends HTMLElement {
     this.classList.add('mce-root')
     this.innerHTML = `
       <div class="mce-toolbar" part="toolbar" role="toolbar" aria-label="Textformatierung"></div>
+      <div class="mce-entities" part="entities" role="list" aria-label="Getaggte Entitäten" style="display:none"></div>
       <div class="mce-editor" part="editor"></div>
     `
+    this._entitiesEl = this.querySelector('.mce-entities')
     // Presence display belongs to the component (the host page is not
     // visible in the target embedding): chips of connected users, toolbar right
     this._usersEl = document.createElement('span')
@@ -126,6 +136,18 @@ class MdCollabEditor extends HTMLElement {
       onStateless: ({ payload }) => this._onStateless(payload),
     })
 
+    // Standoff annotations: shared Y.Array in the SAME Yjs document as the
+    // text — tags and text synchronize over one channel and are seeded/
+    // persisted together by the server (general keywords "Name (Typ)").
+    // Feature logic lives in the controller (src/annotation-controller.js).
+    this._tags = new AnnotationController({
+      root: this,
+      entitiesEl: this._entitiesEl,
+      annotations: this.provider.document.getArray('annotations'),
+      getEditor: () => this.editor,
+      onChange: () => this._onAnnotationsChanged(),
+    })
+
     // Activity tracking: while a user's cursor is moving, they count as
     // "active" (typing/selecting) for 4 seconds
     this._awCursors = new Map() // clientId → serialized cursor position
@@ -152,6 +174,10 @@ class MdCollabEditor extends HTMLElement {
       extensions: [
         ...createExtensions(),
         Placeholder.configure({ placeholder: 'Kompendialer Text …' }),
+        AnnotationDecorations.configure({
+          getAnnotations: () => this._tags.raw(),
+          onAnnotationClick: (hits, event) => this._tags.handleClick(hits, event),
+        }),
         Collaboration.configure({ document: this.provider.document }),
         CollaborationCaret.configure({
           provider: this.provider,
@@ -175,6 +201,7 @@ class MdCollabEditor extends HTMLElement {
     })
 
     this._renderToolbar()
+    this._tags.renderChips()
     this._saveTicker = setInterval(() => this._renderSaveBar(), 1000)
 
     // Warn on leave if unsaved changes would be lost (autosave off — with
@@ -193,6 +220,7 @@ class MdCollabEditor extends HTMLElement {
     clearInterval(this._saveTicker)
     clearTimeout(this._mdTimer)
     clearTimeout(this._saveTimeout)
+    this._tags?.dispose()
     window.removeEventListener('beforeunload', this._beforeUnload)
     this.editor?.destroy()
     this.provider?.destroy()
@@ -210,6 +238,16 @@ class MdCollabEditor extends HTMLElement {
   // ------------------------------------------------------------- Public ---
   getMarkdown() {
     return this.editor ? htmlToMarkdown(this.editor.getHTML()) : ''
+  }
+
+  /** Standoff export: annotations with offsets resolved against the markdown. */
+  getAnnotations() {
+    return this._tags ? this._tags.list(this.getMarkdown()) : []
+  }
+
+  /** Programmatic tagging (AI entry point) — error message or null. */
+  addAnnotation(annotation) {
+    return this._tags ? this._tags.add(annotation) : 'Editor nicht initialisiert'
   }
 
   focus() {
@@ -240,6 +278,7 @@ class MdCollabEditor extends HTMLElement {
     clearTimeout(this._mdTimer)
     this._mdTimer = setTimeout(() => {
       this._emit('markdown-change', { markdown: this.getMarkdown() })
+      this._tags.renderChips() // text edits can orphan/revive quotes → refresh chips
     }, 1000)
   }
 
@@ -265,6 +304,21 @@ class MdCollabEditor extends HTMLElement {
       bar.appendChild(btn)
       this._buttons.push({ btn, tool })
     }
+
+    // Semantic tagging needs component context (popup, Y.Array) — the button
+    // therefore lives here instead of in the static TOOLBAR definition
+    const sep = document.createElement('span')
+    sep.className = 'mce-sep'
+    bar.appendChild(sep)
+    this._tagBtn = document.createElement('button')
+    this._tagBtn.type = 'button'
+    this._tagBtn.innerHTML = '🏷 Entität'
+    this._tagBtn.title = 'Auswahl als Entität taggen'
+    this._tagBtn.setAttribute('aria-label', 'Auswahl als Entität taggen')
+    this._tagBtn.disabled = true
+    this._tagBtn.addEventListener('click', () => this._tags.openTagDialog())
+    bar.appendChild(this._tagBtn)
+
     bar.appendChild(this._usersEl)
     bar.appendChild(this._saveBarEl)
 
@@ -348,8 +402,25 @@ class MdCollabEditor extends HTMLElement {
     }
   }
 
+  // ------------------------------------------------------- Annotations ---
+  /** Controller callback: annotations changed → public event + dirty state. */
+  _onAnnotationsChanged() {
+    this._emit('annotations-change', { annotations: this.getAnnotations() })
+    // Tag changes are persisted like text changes (keywords) → save countdown
+    if (this._save.synced) {
+      const now = Date.now()
+      if (!this._save.dirty) this._save.dirtySince = now
+      this._save.dirty = true
+      this._save.lastChange = now
+      this._renderSaveBar()
+    }
+  }
+
   _updateToolbar() {
     if (!this._buttons || !this.editor) return
+    if (this._tagBtn) {
+      this._tagBtn.disabled = !this.editor.isEditable || this.editor.state.selection.empty
+    }
     const inTable = this.editor.isActive('table')
     for (const { btn, tool } of this._buttons) {
       if (tool.active) {
