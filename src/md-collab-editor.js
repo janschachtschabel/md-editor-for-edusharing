@@ -52,6 +52,8 @@ import { computeSaveBar } from './save-state.js'
 import { TOOLBAR } from './toolbar.js'
 import { AnnotationDecorations } from './annotation-extension.js'
 import { AnnotationController } from './annotation-controller.js'
+import { PresenceTracker } from './presence.js'
+import { DEFAULT_BLOCK_ROLES, roleLabel } from './entity-types.js'
 import { t, setActiveLang, LANGS, DEFAULT_LANG } from './i18n.js'
 
 // User colors for carets/presence chips — all chosen for ≥4.5:1 contrast
@@ -158,25 +160,14 @@ class MdCollabEditor extends HTMLElement {
       onChange: () => this._onAnnotationsChanged(),
     })
 
-    // Activity tracking: while a user's cursor is moving, they count as
-    // "active" (typing/selecting) for 4 seconds
-    this._awCursors = new Map() // clientId → serialized cursor position
-    this._awActive = new Map()  // clientId → timestamp of last activity
-    this._awStates = []
-    this.provider.on('awarenessUpdate', ({ states }) => {
-      const now = Date.now()
-      for (const s of states) {
-        if (!s.user) continue
-        const cur = JSON.stringify(s.cursor ?? null)
-        const prev = this._awCursors.get(s.clientId)
-        if (prev !== undefined && prev !== cur) this._awActive.set(s.clientId, now)
-        this._awCursors.set(s.clientId, cur)
-      }
-      this._awStates = states
-      this._emitUsers()
+    // Presence: awareness tracking + chips live in src/presence.js (F-T5);
+    // the component only re-emits the user list as its public event
+    this._presence = new PresenceTracker({
+      provider: this.provider,
+      usersEl: this._usersEl,
+      getLang: () => this._lang,
+      onUsers: (users) => this._emit('users-change', { users }),
     })
-    // Activity fades out — re-emit periodically
-    this._usersInterval = setInterval(() => this._emitUsers(), 2000)
 
     this.editor = new Editor({
       element: this.querySelector('.mce-editor'),
@@ -226,7 +217,7 @@ class MdCollabEditor extends HTMLElement {
   }
 
   disconnectedCallback() {
-    clearInterval(this._usersInterval)
+    this._presence?.dispose()
     clearInterval(this._saveTicker)
     clearTimeout(this._mdTimer)
     clearTimeout(this._saveTimeout)
@@ -267,21 +258,6 @@ class MdCollabEditor extends HTMLElement {
   // ----------------------------------------------------------- Internal ---
   _emit(type, detail) {
     this.dispatchEvent(new CustomEvent(type, { detail, bubbles: true }))
-  }
-
-  _emitUsers() {
-    const now = Date.now()
-    const self = this.provider?.document?.clientID
-    const users = this._awStates
-      .filter((s) => s.user)
-      .map((s) => ({
-        name: s.user.name,
-        color: s.user.color,
-        isSelf: s.clientId === self,
-        active: now - (this._awActive.get(s.clientId) || 0) < 4000,
-      }))
-    this._renderUsers(users)
-    this._emit('users-change', { users })
   }
 
   _scheduleMarkdownEmit() {
@@ -329,6 +305,27 @@ class MdCollabEditor extends HTMLElement {
     this._tagBtn.disabled = true
     this._tagBtn.addEventListener('click', () => this._tags.openTagDialog())
     bar.appendChild(this._tagBtn)
+
+    // Paragraph-role control (the SECOND tagging system): a single exclusive
+    // choice per block → a <select>, distinct from the multi-toggle entity
+    // tagging. Roles are structure (::: markup), never keywords.
+    this._roleSelect = document.createElement('select')
+    this._roleSelect.className = 'mce-role-select'
+    this._roleSelect.title = t(this._lang, 'toolbar.roleTitle')
+    this._roleSelect.setAttribute('aria-label', t(this._lang, 'toolbar.roleTitle'))
+    this._roleSelect.appendChild(new Option(t(this._lang, 'toolbar.roleNone'), ''))
+    this._roleSelect.appendChild(new Option(t(this._lang, 'toolbar.roleClear'), '__clear__'))
+    const roleGroup = document.createElement('optgroup')
+    roleGroup.label = t(this._lang, 'toolbar.roleGroupLabel')
+    for (const r of DEFAULT_BLOCK_ROLES) roleGroup.appendChild(new Option(roleLabel(r.slug, this._lang), r.slug))
+    this._roleSelect.appendChild(roleGroup)
+    this._roleSelect.addEventListener('change', () => {
+      const v = this._roleSelect.value
+      if (v === '__clear__') this.editor.chain().focus().unsetRole().run()
+      else if (v) this.editor.chain().focus().setRole(v).run()
+      this._updateToolbar()
+    })
+    bar.appendChild(this._roleSelect)
 
     bar.appendChild(this._usersEl)
     bar.appendChild(this._saveBarEl)
@@ -400,19 +397,6 @@ class MdCollabEditor extends HTMLElement {
     this._saveBarEl.querySelector('.mce-save-btn').disabled = !canSaveNow
   }
 
-  _renderUsers(users) {
-    if (!this._usersEl) return
-    this._usersEl.innerHTML = ''
-    for (const u of users) {
-      const chip = document.createElement('span')
-      chip.className = 'mce-chip' + (u.active ? ' mce-chip-active' : '')
-      chip.style.background = u.color || '#888'
-      chip.textContent = (u.name || '?') + (u.isSelf ? t(this._lang, 'users.self') : '') + (u.active && !u.isSelf ? ' ✎' : '')
-      chip.title = u.active ? t(this._lang, 'users.editingTitle', { name: u.name }) : t(this._lang, 'users.connectedTitle', { name: u.name })
-      this._usersEl.appendChild(chip)
-    }
-  }
-
   // ------------------------------------------------------- Annotations ---
   /** Controller callback: annotations changed → public event + dirty state. */
   _onAnnotationsChanged() {
@@ -431,6 +415,16 @@ class MdCollabEditor extends HTMLElement {
     if (!this._buttons || !this.editor) return
     if (this._tagBtn) {
       this._tagBtn.disabled = !this.editor.isEditable || this.editor.state.selection.empty
+    }
+    if (this._roleSelect) {
+      this._roleSelect.disabled = !this.editor.isEditable
+      const slug = this.editor.isActive('roleBlock') ? (this.editor.getAttributes('roleBlock').role || '') : ''
+      // A free role authored outside the catalog: add it so the select can
+      // reflect it instead of falling back to the placeholder
+      if (slug && ![...this._roleSelect.options].some((o) => o.value === slug)) {
+        this._roleSelect.add(new Option(slug, slug))
+      }
+      this._roleSelect.value = slug
     }
     const inTable = this.editor.isActive('table')
     for (const { btn, tool } of this._buttons) {

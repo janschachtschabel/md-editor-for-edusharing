@@ -5,12 +5,40 @@ Markdown-Editor umgesetzt ist und **warum** die zentralen Design-Entscheidungen
 so gefallen sind. Zielgruppe: Entwickler:innen, die das Feature erweitern oder
 in andere Kontexte übertragen wollen.
 
+## Zwei Systeme — nach Semantik getrennt
+
+Es gibt **zwei** Auszeichnungssysteme, weil zwei semantisch verschiedene Dinge
+markiert werden. Der Mechanismus folgt der Semantik:
+
+| | **Entitäten** (inline) | **Absatzrollen** (block) |
+|---|---|---|
+| Beispiel | „Weimar" ist ein `Ort`, „huygenssches Prinzip" ein `Fachbegriff` | dieser Absatz ist eine `Einleitung` / `Definition` / `Aufgabe` |
+| Aussage | Metadaten **über** eine Textstelle (Referenz) | **Struktur des** Textes (Rolle im Lehr-/Lerngefüge) |
+| Granularität | Wortgruppe (Span) | ganzer Block (ein oder mehrere Absätze) |
+| Speicherort | **neben** dem Text (Standoff) → `cclom:general_keyword` als `Name (Typ)` | **im** Text als `:::`-Container im Markdown |
+| Findbarkeit als Schlagwort | **ja** | **nein — nie in den Keywords** |
+| Modul | `annotations*.js`, `entity-types.js` | `role-block.js`, `markdown.js`, `entity-types.js` |
+
+Die **gemeinsame Wurzel** ist der Vokabular-Katalog in
+[src/entity-types.js](../src/entity-types.js): frühere „Ebene 1" (Didaktik/
+Wissensart) sind heute die **Absatzrollen**, „Ebene 2" (Domänen-Entitäten) die
+**Entitätstypen**. Beide teilen sich dieselben Anzeige-Labels und
+EN-Übersetzungen — eine Wahrheit, keine Drift.
+
+Die Prinzipien 1–6 unten beschreiben das **Entitäten-System**; der Abschnitt
+[„Absatzrollen"](#absatzrollen-struktur-im-markdown) das zweite. Warum
+Absatzrollen bewusst *nicht* Standoff sind (und Entitäten schon), steht
+ausführlich in [ABSATZROLLEN.md](ABSATZROLLEN.md).
+
+---
+
+# Teil A — Entitäten (Standoff → Keywords)
+
 ## Ziel
 
-Nutzer:innen (und KI-Agenten) markieren Entitäten im Fließtext — „Weimar" ist
-ein `Ort`, „huygenssches Prinzip" ein `Fachbegriff` — und diese Auszeichnungen
-werden mit dem Dokument gespeichert, kollaborativ synchronisiert und als
-edu-sharing-Keywords persistiert. Drei Anforderungen bestimmen das Design:
+Nutzer:innen (und KI-Agenten) markieren Entitäten im Fließtext und diese
+Auszeichnungen werden mit dem Dokument gespeichert, kollaborativ synchronisiert
+und als edu-sharing-Keywords persistiert. Drei Anforderungen bestimmen das Design:
 
 - **A1 — Sauberer Text:** Der Markdown-Text bleibt frei von Markierungszeichen,
   damit er unverändert als KI-Datengrundlage taugt.
@@ -21,7 +49,7 @@ edu-sharing-Keywords persistiert. Drei Anforderungen bestimmen das Design:
 
 ## Prinzip 1: Standoff statt Inline-Markup
 
-**Entscheidung:** Annotationen leben *neben* dem Text (Standoff-Prinzip),
+**Entscheidung:** Entitäts-Annotationen leben *neben* dem Text (Standoff-Prinzip),
 nicht *im* Text.
 
 | | Inline-Markup (verworfen) | Standoff (gewählt) |
@@ -36,6 +64,10 @@ Konsequenz für die Anzeige: getaggte Stellen werden als *Decorations*
 gerendert ([src/annotation-extension.js](../src/annotation-extension.js)).
 Decorations sind Teil der View, nicht des Dokuments — sie erscheinen weder im
 Yjs-Dokument noch im Markdown-Export.
+
+> Wichtig für die Abgrenzung: Prinzip 1 gilt für **Entitäten**. Absatzrollen
+> sind *Struktur* (wie Überschriften) und stehen deshalb bewusst **im** Markdown
+> — kein Widerspruch, sondern die passende Wahl je Kategorie (siehe Teil B).
 
 ## Prinzip 2: Zitat-Anker statt Positions-Anker
 
@@ -65,6 +97,10 @@ Eigenschaften des gewählten Modells:
   nicht mehr auflösbar (`start/end = null`). Es wird in der Entitäten-Leiste
   ausgegraut angezeigt und bleibt als Keyword erhalten, bis es explizit
   entfernt wird — kein stilles Verschwinden.
+- **Längen-/Blockgrenze:** Zitate sind auf `MAX_QUOTE_LENGTH` (200) begrenzt
+  und dürfen **keinen Zeilenumbruch** enthalten (`isValidQuote`) — ein Span
+  über Absatzgrenzen wäre im Keyword nicht stabil. Genau dafür gibt es die
+  Absatzrollen (Teil B).
 - Yjs Relative Positions bleiben als Ausbaustufe möglich (z. B. zusätzlich
   zum Zitat als Schnell-Anker), wurden aber bewusst nicht als primäres
   Modell gewählt.
@@ -100,6 +136,9 @@ Yjs-Dokument** wie der Text — nicht in einem zweiten Kanal:
 - Read-only-Verbindungen können auch die Tags nicht verändern (derselbe
   Schreibschutz wie für den Text).
 
+(Absatzrollen brauchen keinen eigenen Kanal — sie sind Teil des Dokuments
+selbst und synchronisieren als normale Block-Knoten mit.)
+
 ## Prinzip 5: Persistenz als lesbare General Keywords
 
 Entitäten werden als **`cclom:general_keyword`** in der Form
@@ -111,82 +150,161 @@ Entitäten werden als **`cclom:general_keyword`** in der Form
   darf selbst Klammern enthalten („Willy Brandt (SPD)"), nur die *letzte*
   Klammergruppe zählt als Typ. Deshalb sind **Klammern in Typwerten
   verboten** (`isValidType`).
-- **Roundtrip:** Beim Laden werden Keywords im Muster geparst, per
-  Zitat-Suche im Text verankert und als Annotationen gesetzt; nicht (mehr)
-  auffindbare Zitate werden übersprungen. Beim Speichern werden Keywords aus
-  den Annotationen neu aufgebaut und dedupliziert. **Keywords ohne Muster
-  („Optik") bleiben unangetastet erhalten.**
-- **Read-Back-Verifikation:** Wie beim Markdown gilt „gespeichert" erst nach
-  bestätigtem Rücklesen aus dem Repo (edu-sharing kann 200 OK liefern und
-  still verwerfen).
+- **Roundtrip mit Bestandsschutz:** Beim Laden werden Keywords im Muster
+  geparst und per Zitat-Suche verankert — aber **nur die als Annotation
+  übernommenen gelten als editor-verwaltet** („consumed"). Beim Speichern
+  wird die Keyword-Liste als `preservedKeywords (unangetastet)` **+**
+  `serializeEntityKeywords (aus den aktuellen Annotationen)` neu zusammengesetzt.
+  Damit bleibt **jedes** vorbestehende Keyword erhalten — sowohl schlichte
+  („Optik") als auch parenthesierte, deren Wort nicht im Text steht
+  (z. B. eine Disambiguierung `Merkur (Planet)`). Details/Falle:
+  [ABSATZROLLEN.md](ABSATZROLLEN.md) ist hier nicht relevant, aber der
+  System-Skill `wlo-edu-sharing-api` → „Keywords sicher schreiben".
+- **Mengen-Vergleich:** Änderungserkennung und Read-Back vergleichen die
+  Keyword-Liste als **Menge** (Reihenfolge egal) — sonst löst schon ein
+  Umsortieren durch das Repo einen Phantom-Write aus.
+- **Read-Back-Verifikation:** „gespeichert" gilt erst nach bestätigtem
+  Rücklesen aus dem Repo (edu-sharing kann 200 OK liefern und still verwerfen).
 
 Grenze dieses Formats: Keywords tragen nur Name + Typ. Die optionale
 `entityId` (Verweis auf ein Normdaten-/edu-sharing-Objekt) lebt daher nur im
 Yjs-Dokument; eine dauerhafte Persistenz (z. B. eigenes JSON-Property) ist
 eine dokumentierte Ausbaustufe.
 
-## Prinzip 6: Typ-Katalog mit freier Erweiterung
+## Prinzip 6: Geteilter Katalog mit freier Erweiterung
 
-Der Tag-Dialog schlägt einen **Default-Katalog** vor
-([src/entity-types.js](../src/entity-types.js)), zwei Ebenen:
+Der Vokabular-Katalog ([src/entity-types.js](../src/entity-types.js)) versorgt
+**beide** Systeme aus einer Quelle:
 
-1. **Didaktik / Wissensart** — Rolle im Lehr-/Lerngefüge
-   (`Definition`, `Beispiel`, `Aufgabe`, `Merksatz`, …).
-2. **Entitätstypen** nach Domäne gruppiert — Personen/Orte, Curriculum,
-   Unterricht, Wissenschaft, Zeit/Recht, KI-Tools, Support/Doku.
+- **Entitätstypen** (`DEFAULT_TYPE_GROUPS`) — nach Domäne gruppiert
+  (Personen/Orte, Curriculum, Unterricht, Wissenschaft, Zeit/Recht, KI-Tools,
+  Support/Doku). Werden im **Tag-Dialog** als Vorschläge angeboten.
+- **Absatzrollen** (`DEFAULT_BLOCK_ROLES`) — die didaktischen Rollen als
+  `{slug, label}`. Werden im **Rollen-Select** der Toolbar angeboten (Teil B).
 
-Freie Typen bleiben erlaubt (Eingabefeld mit Vorschlägen, kein festes
-Dropdown); einzige Regel: keine Klammern (Prinzip 5). Bereits im Dokument
-verwendete freie Typen erscheinen als eigene Vorschlagsgruppe zuerst.
-Namenskonvention im Katalog: Slash-Paare auf den Primärbegriff reduziert
+Freie Werte bleiben in beiden Systemen erlaubt (Eingabe/Select mit Vorschlägen,
+kein festes Dropdown). Für Entitätstypen ist die einzige Regel: keine Klammern
+(Prinzip 5); bereits verwendete freie Typen erscheinen als eigene
+Vorschlagsgruppe zuerst. EN-Labels kommen für beide Systeme aus derselben
+`TYPE_LABELS_EN` (`typeLabel`/`roleLabel`), gespeicherte Werte bleiben deutsch.
+Namenskonvention: Slash-Paare auf den Primärbegriff reduziert
 („Fach / Fachgebiet" → `Fach`), Klammer-Zusätze umformuliert
 („Methode (wissenschaftlich)" → `Wissenschaftliche Methode`).
 
+---
+
+# Teil B — Absatzrollen (Struktur im Markdown)
+
+**Entscheidung:** Didaktische Rollen eines Absatzes (`Einleitung`, `Definition`,
+`Aufgabe`, `Merksatz` …) sind **Struktur** und stehen deshalb — anders als
+Entitäten — **im** Markdown, als benannter Container:
+
+```markdown
+::: definition
+Die **Kartoffel** (Solanum tuberosum) ist eine Nutzpflanze.
+:::
+```
+
+Begründung (ausführlich in [ABSATZROLLEN.md](ABSATZROLLEN.md)): Rollen sind wie
+Überschriften Teil der Textstruktur — die KI-Pipeline *profitiert* vom Marker im
+Rohtext, es gibt keine Anker-Fragilität (die Rolle klebt am Block, egal wie der
+Satz umformuliert wird), die Struktur reist beim Kopieren/Export/Versionieren
+mit, und die Kollaboration kommt gratis (normaler Yjs-Block). Overlap — der
+Hauptgrund für Standoff bei Entitäten — wird hier nicht gebraucht.
+
+**Umsetzung:**
+
+- **Schema:** TipTap-Node `roleBlock` ([src/role-block.js](../src/role-block.js)),
+  `group: block, content: block+`, Attribut `role` (Slug). Rendert als
+  `<section data-role="…">`, wandert damit durch Yjs und HTML⇄JSON.
+- **Markdown-Roundtrip** ([src/markdown.js](../src/markdown.js)): ein
+  marked-Block-Tokenizer erkennt `::: slug … :::` und parst den Inhalt als
+  normales Markdown (verschachtelte Blöcke überleben); eine Turndown-Regel
+  serialisiert `section[data-role]` zurück zum `:::`-Container. Verlustfreiheit
+  ist in `test/roundtrip.test.mjs` abgesichert (inkl. Stabilität `md2 === md3`).
+- **Slugs:** Der Slug (`::: loesung`) ist markdown-sicher (`roleSlug`,
+  Umlaut-Transliteration); das Anzeige-Label (`Lösung`/`Solution`) kommt aus dem
+  geteilten Katalog (`roleLabel`).
+- **Bedienung:** Rollen-`<select>` in der Toolbar (bewusst ein Select — eine
+  exklusive Wahl pro Block, im Gegensatz zum Multi-Toggle der Entitäten).
+  Auswahl setzt/ändert die Rolle (`setRole`), „— keine Rolle —" entfernt sie
+  (`unsetRole`). Der Select spiegelt die Rolle des aktuellen Blocks; freie
+  Rollen aus externem Markdown werden dynamisch ergänzt.
+- **Persistenz:** keine eigene — die Rolle steht im Markdown und landet damit
+  automatisch im Compendium-Property. Rollen erreichen `cclom:general_keyword`
+  **per Konstruktion nie**.
+
+**Granularität (v1):** Block-genau — ein Container umfasst einen oder mehrere
+Absätze. Ein einzelner Satz ist möglich, indem er ein eigener Absatz wird
+(erst per Enter trennen, dann Rolle setzen). Automatische Absatz-Teilung bei
+Satz-Auswahl ist eine dokumentierte Ausbaustufe.
+
+---
+
 ## Schnittstellen für KI-Integration
 
-Die Web Component bietet den kompletten Tagging-Zyklus programmatisch an:
+Die Web Component bietet den Tagging-Zyklus programmatisch an:
 
 ```js
 const editor = document.querySelector('md-collab-editor')
 
+// --- Entitäten -----------------------------------------------------------
 // KI-Ausgabe eintragen (Zitat + Typ genügen):
 const error = editor.addAnnotation({ quote: 'Weimar', type: 'Ort' })
-// → null bei Erfolg; Fehlermeldung bei nicht auffindbarem Zitat (Halluzination)
-//   oder Kreuzung mit bestehendem Tag
+// → null bei Erfolg; Fehlermeldung bei nicht auffindbarem Zitat (Halluzination),
+//   Kreuzung mit bestehendem Tag oder blockübergreifendem/zu langem Zitat
 
 // Strukturierter Export (A2):
 editor.getAnnotations()
 // → [{id, quote, occurrence, type, entityId, start, end}] — Offsets gegen
 //   das aktuelle Markdown, null bei verwaisten Tags
 
-// Live-Beobachtung:
 editor.addEventListener('annotations-change', (e) => e.detail.annotations)
+
+// --- Absatzrollen --------------------------------------------------------
+// Rollen sind Teil des Dokuments — von einer KI am einfachsten direkt im
+// Markdown gesetzt (::: role … :::); interaktiv/programmatisch über die
+// Editor-Befehle:
+editor.editor.chain().focus().setRole('definition').run()
+editor.editor.chain().focus().unsetRole().run()
+// Auslesen: im exportierten Markdown (getMarkdown) als ::: slug erkennbar.
 ```
 
 ## Modul-Landkarte
 
-| Modul | Verantwortung | getestet |
-|---|---|---|
-| [src/annotations.js](../src/annotations.js) | pure Logik: Keyword ⇄ Annotation, Zitat → Offsets, Kreuzungscheck, Typ-Validierung | `test/annotations.test.mjs` |
-| [src/entity-types.js](../src/entity-types.js) | Default-Typkatalog + Vorschlags-Builder | `test/entity-types.test.mjs` |
-| [src/annotation-extension.js](../src/annotation-extension.js) | TipTap-Extension: Text-Index (Offset ⇄ ProseMirror-Position), Decorations, Klick-Handling | indirekt (Build/Lint) |
-| [src/annotation-ui.js](../src/annotation-ui.js) | DOM-Bausteine: Tag-Dialog, Verwaltungs-Popup, Entitäten-Chips | indirekt |
-| [src/annotation-controller.js](../src/annotation-controller.js) | Feature-Controller: Y.Array, Validierung, Dialog-Orchestrierung | indirekt |
-| [server/collab.js](../server/collab.js) | Seed beim Laden, Keyword-Ableitung + Read-Back beim Speichern | `test/api-auth.test.mjs` (Infrastruktur) |
-| [server/edu-sharing-api.js](../server/edu-sharing-api.js) | `cclom:general_keyword` lesen/schreiben (setProperty) | indirekt |
+| Modul | System | Verantwortung | getestet |
+|---|---|---|---|
+| [src/annotations.js](../src/annotations.js) | Entitäten | pure Logik: Keyword ⇄ Annotation (`consumed`/`preserved`/`merge`), Zitat → Offsets, Kreuzungscheck, Zitat-/Typ-Validierung | `test/annotations.test.mjs` |
+| [src/entity-types.js](../src/entity-types.js) | beide | geteilter Katalog: Entitätstypen + Absatzrollen, `roleSlug`/`roleLabel`, Vorschlags-Builder | `test/entity-types.test.mjs` |
+| [src/annotation-extension.js](../src/annotation-extension.js) | Entitäten | TipTap-Extension: Text-Index (Offset ⇄ ProseMirror-Position), Decorations, Klick-Handling | indirekt |
+| [src/annotation-ui.js](../src/annotation-ui.js) | Entitäten | DOM-Bausteine: Tag-Dialog, Verwaltungs-Popup, Entitäten-Chips | `test/annotation-ui.test.mjs` (jsdom) |
+| [src/annotation-controller.js](../src/annotation-controller.js) | Entitäten | Feature-Controller: Y.Array, Validierung, Dialog-Orchestrierung | indirekt |
+| [src/role-block.js](../src/role-block.js) | Rollen | TipTap-Node `roleBlock` (`:::`-Container) + Befehle `setRole`/`unsetRole` | `test/roundtrip.test.mjs` |
+| [src/markdown.js](../src/markdown.js) | Rollen | marked-Tokenizer + Turndown-Regel für den `:::`-Roundtrip | `test/roundtrip.test.mjs` |
+| [src/md-collab-editor.js](../src/md-collab-editor.js) | beide | Toolbar: Entitäts-Button (Dialog) + Rollen-Select; Verdrahtung | indirekt |
+| [server/collab.js](../server/collab.js) | Entitäten | Seed beim Laden, Keyword-Ableitung + Read-Back beim Speichern | `test/keyword-lifecycle.test.mjs`, `test/collab-load.test.mjs` |
+| [server/edu-sharing-api.js](../server/edu-sharing-api.js) | Entitäten | `cclom:general_keyword` lesen/schreiben (setProperty) | indirekt |
 
 Die pure Logik ist bewusst DOM-/Yjs-frei und läuft identisch in Node
 (Server-Seed/-Persistenz) und Browser (Anzeige/Validierung) — eine
-Implementierung, keine Drift.
+Implementierung, keine Drift. Der `roleBlock`-Node ist ebenfalls pur (kein DOM)
+und deshalb Teil des geteilten Extension-Sets für Server und Browser.
 
 ## Bekannte Grenzen & Ausbaustufen
 
 - **`entityId`-Persistenz** — aktuell nur im Yjs-Dokument (s. Prinzip 5).
-- **Blockübergreifende Tags** — die Auswahl darf keine Absätze überspannen
-  (Zitate mit Zeilenumbruch wären im Keyword-Roundtrip nicht stabil).
-- **Ebene-1-Typen als Block-Rollen** — didaktische Typen (`Einleitung`,
-  `Zusammenfassung`) werden derzeit wie Span-Tags behandelt; block-genaues
-  Taggen wäre eine eigene Ausbaustufe.
+- **Blockübergreifende Entitäten** — ein Entitäts-Span darf keine Absätze
+  überspannen (Zitate mit Zeilenumbruch wären im Keyword-Roundtrip nicht
+  stabil); für ganze Absätze sind die **Absatzrollen** da.
+- **Rollen block-genau (v1)** — ein Satz mitten im Absatz kann nicht ohne
+  Absatz-Teilung eine eigene Rolle bekommen; automatische Teilung an
+  Satzgrenzen ist Ausbaustufe (siehe [ABSATZROLLEN.md](ABSATZROLLEN.md)).
+- **Rollen-Label als Slug im Chip** — der Editor-Chip zeigt den Slug
+  (`definition`) capitalisiert; die vollständige Label-Übersetzung im Chip
+  (statt nur im Select) wäre eine NodeView-Ausbaustufe.
+- **Rollen-Auswertung repo-weit** — Rollen sind im Markdown maschinenlesbar
+  (`^::: (\w+)`); ein optionales Spiegel-Property für „welche Kompendien haben
+  Aufgaben?" ist bewusst nicht Teil v1.
 - **Vorkommen-Zählung Markdown vs. Editor-Text** — die Auflösung nutzt den
   Klartext des Editors, der Server sucht im Markdown; bei Zitaten, die in
   Markdown-Syntax vorkommen (sehr selten), kann sich die Vorkommens-Nummer
@@ -205,7 +323,7 @@ Implementierung, keine Drift.
   nächsten Laden per `Y.applyUpdate` wieder her, statt aus dem Markdown einen
   neuen Y.Doc zu bauen. Grund: ein frisch gebauter Y.Doc ist strukturell ein
   anderes Dokument (Yjs identifiziert Einfügungen über `(clientID, clock)`,
-  nicht über Inhalt) — traf ein noch "lebender" Client (kurzer
+  nicht über Inhalt) — traf ein noch „lebender" Client (kurzer
   WebSocket-Reconnect, kein Seitenneuladen) auf einen neu gebauten Server-Y.Doc,
   wurden Text UND Entitäten dupliziert. Der Cache überlebt keinen
   Server-Neustart (rein In-Memory) und wird verworfen, sobald sich das

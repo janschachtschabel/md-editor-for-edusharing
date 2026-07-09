@@ -48,6 +48,10 @@ check('findAllQuoteRanges: empty quote → empty array', JSON.stringify(findAllQ
 // to edu-sharing) ---------------------------------------------------------
 check('normal-length quote is valid', isValidQuote('Weimar'))
 check('empty quote is invalid', isValidQuote('') === false)
+// F-T6: block-spanning quotes must be rejected in EVERY path (the text index
+// joins blocks with '\n', so a multi-block quote could otherwise anchor
+// across a block boundary via the programmatic add() path)
+check('quote spanning blocks (contains \\n) is invalid', isValidQuote('foo\nbar') === false)
 check(`quote at exactly ${MAX_QUOTE_LENGTH} chars is valid`, isValidQuote('a'.repeat(MAX_QUOTE_LENGTH)))
 check(`quote over ${MAX_QUOTE_LENGTH} chars is invalid`, isValidQuote('a'.repeat(MAX_QUOTE_LENGTH + 1)) === false)
 

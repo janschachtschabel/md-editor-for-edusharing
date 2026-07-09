@@ -1,6 +1,8 @@
 // Unit tests for the default entity-type catalog and the suggestion builder
 // (defaults grouped, already-used custom types merged in, free types allowed).
-import { DEFAULT_TYPE_GROUPS, buildTypeOptions } from '../src/entity-types.js'
+import {
+  DEFAULT_TYPE_GROUPS, DEFAULT_BLOCK_ROLES, buildTypeOptions, roleSlug, roleLabel,
+} from '../src/entity-types.js'
 import { isValidType } from '../src/annotations.js'
 
 let fail = 0
@@ -19,12 +21,31 @@ check('no duplicate type values across groups',
 check('no type value contains parentheses (would break "Name (Typ)" keywords)',
   allDefaults.every((t) => isValidType(t)),
   allDefaults.filter((t) => !isValidType(t)).join(', '))
-check('level 1 didactic types are present',
-  ['Definition', 'Beispiel', 'Aufgabe', 'Merksatz', 'Lernziel'].every((t) => allDefaults.includes(t)))
+// Two SEPARATE systems now: didactic block roles vs. inline entity types.
+// Didactic types must NOT be in the entity catalog (they'd otherwise land in
+// cclom:general_keyword) — they live in DEFAULT_BLOCK_ROLES instead.
+check('didactic types are NOT in the entity catalog',
+  ['Definition', 'Beispiel', 'Aufgabe', 'Merksatz', 'Lernziel', 'Einleitung'].every((t) => !allDefaults.includes(t)))
 check('level 2 entity types are present',
   ['Person', 'Organisation', 'Ort', 'Fachbegriff', 'Tool', 'Fehlermeldung'].every((t) => allDefaults.includes(t)))
 check('topic hierarchy types are present',
   ['Thema', 'Themenbereich', 'Unterthema'].every((t) => allDefaults.includes(t)))
+
+// --- block roles (paragraph structure, separate from entities) -----------------
+check('block roles carry a slug + label and cover the didactic vocabulary',
+  DEFAULT_BLOCK_ROLES.length >= 20
+  && DEFAULT_BLOCK_ROLES.every((r) => r.slug && r.label)
+  && ['Definition', 'Beispiel', 'Aufgabe', 'Merksatz', 'Einleitung'].every((l) => DEFAULT_BLOCK_ROLES.some((r) => r.label === l)))
+check('roleSlug transliterates umlauts and is markdown-safe',
+  roleSlug('Lösung') === 'loesung' && roleSlug('Übung') === 'uebung'
+  && roleSlug('Definition') === 'definition' && /^[a-z0-9-]+$/.test(roleSlug('Rahmenkontext')))
+check('block role slugs are unique',
+  new Set(DEFAULT_BLOCK_ROLES.map((r) => r.slug)).size === DEFAULT_BLOCK_ROLES.length)
+check('roleLabel resolves a slug back to its display label (de/en)',
+  roleLabel('definition', 'de') === 'Definition' && roleLabel('definition', 'en') === 'Definition'
+  && roleLabel('loesung', 'de') === 'Lösung' && roleLabel('loesung', 'en') === 'Solution')
+check('roleLabel passes an unknown (free) slug through unchanged',
+  roleLabel('mein-eigener', 'de') === 'mein-eigener' && roleLabel('mein-eigener', 'en') === 'mein-eigener')
 
 // --- suggestion builder ---------------------------------------------------------
 const options = buildTypeOptions(['Person', 'Mein Spezialtyp'])

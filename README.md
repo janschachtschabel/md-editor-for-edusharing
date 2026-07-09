@@ -45,7 +45,7 @@ siehe [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
 | edu-sharing-Anbindung ([server/edu-sharing-api.js](server/edu-sharing-api.js)) | Speicherziele, `setProperty`-Umweg (MDS-Quirk), Access-Checks, **Read-Back-Verifikation** |
 | Persistenz-Regelung ([server/collab.js](server/collab.js)) | Puffer-Strategie, Änderungserkennung, Fehler-Retry, Save-Status-Broadcast (Details unten) |
 | Session- & Sicherheits-Schicht ([sessions.js](server/sessions.js), [guards.js](server/guards.js)) | opake Login-/Ticket-Sessions, Rate-Limit, WS-Origin-Check, Node-ID-Validierung |
-| Host-Seite, 6 Testsuiten, CI (GitHub + GitLab), Docker | Referenz-Einbettung + Qualitätssicherung |
+| Host-Seite, Testsuiten, CI (GitHub + GitLab), Docker | Referenz-Einbettung + Qualitätssicherung |
 
 ## Architektur
 
@@ -105,12 +105,14 @@ Optional `.env` anlegen (Vorlage: [.env.example](.env.example)):
 4. Zum Speichern braucht der angemeldete Account **Write-Recht** auf dem
    Knoten — ohne bleibt die Sitzung Nur-Lesen (ehrlich angezeigt).
 
-Automatisierte Tests: `npm test` — 9 Suiten: Markdown-Roundtrip (inkl.
-Tabellen/Task-Listen), Annotations-Logik (Keyword-Roundtrip, Zitat-Suche,
-Kreuzungsverbot, Zitat-Längenbegrenzung), Entitätstyp-Katalog, Save-Bar-Logik,
+Automatisierte Tests: `npm test` — Markdown-Roundtrip (inkl. Tabellen/
+Task-Listen), Annotations-Logik (Keyword-Roundtrip, Zitat-Suche,
+Kreuzungsverbot, Zitat-Regeln), Entitätstyp-Katalog, Save-Bar-Logik,
 Security-Guards, Session-Store, eine API-Integration, die den echten Server
-gegen ein Mock-Repo fährt, i18n-Schlüssel-Parität (de/en) sowie die
-Annotations-UI (Dialoge inkl. Fokus-Management, jsdom).
+gegen ein Mock-Repo fährt, i18n-Schlüssel-Parität (de/en), die Annotations-UI
+(Dialoge inkl. Fokus-Management, jsdom) sowie zwei Server-Integrationssuiten
+gegen ein gestubbtes Repo (Yjs-Reconnect ohne Duplikate, Keyword-Lifecycle:
+bestehende Schlagwörter überleben Entitäts-Änderungen).
 
 ## Web Component einbinden
 
@@ -335,7 +337,7 @@ src/markdown.js            Markdown ⇄ HTML (Server + Client identisch)
 src/host.js                Demo-Host-Seite (Referenz für die Angular-Einbettung)
 public/app-config.js       Laufzeit-Konfiguration (Backend-URL bei Cross-Origin-Einbettung)
 public/                    HTML, CSS, gebaute Bundles
-test/                      7 Testsuiten (npm test)
+test/                      Testsuiten (npm test)
 .github/ + .gitlab-ci.yml  CI: Build+Test, Docker-Image → ghcr.io bzw. self-hosted Registry
 ```
 

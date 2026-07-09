@@ -78,6 +78,9 @@ function resolveToPmRanges(annotations, doc) {
 }
 
 function buildDecorations(annotations, doc) {
+  // Early exit for the common untagged case: without it, every keystroke
+  // would rebuild the full text index just to decorate nothing (audit F-T4)
+  if (!annotations.length) return DecorationSet.empty
   const decorations = resolveToPmRanges(annotations, doc).map(({ annotation, from, to }) =>
     Decoration.inline(from, to, {
       class: 'mce-entity',

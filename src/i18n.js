@@ -83,6 +83,11 @@ const MESSAGES = {
     'toolbar.colAddLabel': '+Spalte',
     'toolbar.rowDelLabel': '−Zeile',
     'toolbar.colDelLabel': '−Spalte',
+    // Paragraph-role control (block roles, src/role-block.js)
+    'toolbar.roleGroupLabel': 'Absatzrolle',
+    'toolbar.roleTitle': 'Absatzrolle (Einleitung, Definition, Aufgabe …) — betrifft den ganzen Absatz, kein Schlagwort',
+    'toolbar.roleNone': '¶ Rolle …',
+    'toolbar.roleClear': '— keine Rolle —',
 
     // <md-collab-editor> shell (src/md-collab-editor.js)
     'editor.toolbarLabel': 'Textformatierung',
@@ -131,7 +136,7 @@ const MESSAGES = {
     'controller.quoteTypeRequired': 'quote und type sind erforderlich',
     'controller.quoteNotFound': 'Zitat nicht im Text gefunden: „{quote}"',
     'controller.quoteTooLong': 'Auswahl ist zu lang (max. {max} Zeichen).',
-    'controller.noBlockSpan': 'Die Auswahl darf keine Absätze überspannen.',
+    'controller.noBlockSpan': 'Die Auswahl darf keine Absätze überspannen — für ganze Absätze gibt es die Absatzrolle (¶ Rolle).',
     'controller.invalidType': 'Ungültiger Typ — Klammern sind nicht erlaubt (der Typ wird als „Name (Typ)" gespeichert).',
     'controller.crossing': 'Kreuzt bestehendes Tag „{label}" — erlaubt sind nur verschachtelte oder deckungsgleiche Tags.',
 
@@ -228,6 +233,10 @@ const MESSAGES = {
     'toolbar.colAddLabel': '+Column',
     'toolbar.rowDelLabel': '−Row',
     'toolbar.colDelLabel': '−Column',
+    'toolbar.roleGroupLabel': 'Paragraph role',
+    'toolbar.roleTitle': 'Paragraph role (introduction, definition, exercise …) — applies to the whole paragraph, not a keyword',
+    'toolbar.roleNone': '¶ Role …',
+    'toolbar.roleClear': '— no role —',
 
     'editor.toolbarLabel': 'Text formatting',
     'editor.entitiesLabel': 'Tagged entities',
@@ -272,7 +281,7 @@ const MESSAGES = {
     'controller.quoteTypeRequired': 'quote and type are required',
     'controller.quoteNotFound': 'Quote not found in the text: "{quote}"',
     'controller.quoteTooLong': 'Selection is too long (max. {max} characters).',
-    'controller.noBlockSpan': 'The selection may not span multiple paragraphs.',
+    'controller.noBlockSpan': 'The selection may not span multiple paragraphs — for whole paragraphs use the paragraph role (¶ Role).',
     'controller.invalidType': 'Invalid type — parentheses are not allowed (the type is stored as "Name (Type)").',
     'controller.crossing': 'Crosses an existing tag "{label}" — only nested or identical tags are allowed.',
 

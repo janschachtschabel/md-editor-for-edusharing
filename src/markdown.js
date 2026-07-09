@@ -10,7 +10,25 @@ import TurndownService from 'turndown'
 import { gfm } from 'turndown-plugin-gfm'
 
 // ------------------------------------------------------- Markdown → HTML ---
-marked.use({ gfm: true })
+// Fenced-div extension for didactic paragraph roles:  ::: role \n …blocks… \n :::
+// → <section data-role="role">…</section>. The body is parsed as normal
+// markdown (nested blocks survive), matching the RoleBlock node schema.
+const roleContainer = {
+  name: 'roleBlock',
+  level: 'block',
+  start(src) { return src.match(/^:::/m)?.index },
+  tokenizer(src) {
+    const m = /^::: *([a-z0-9-]+)[ \t]*\n([\s\S]*?)\n::: *(?=\n|$)/.exec(src)
+    if (!m) return undefined
+    const token = { type: 'roleBlock', raw: m[0], role: m[1], tokens: [] }
+    this.lexer.blockTokens(m[2], token.tokens)
+    return token
+  },
+  renderer(token) {
+    return `<section data-role="${token.role}">${this.parser.parse(token.tokens)}</section>\n`
+  },
+}
+marked.use({ gfm: true, extensions: [roleContainer] })
 
 /**
  * marked renders task lists as <li><input type="checkbox">…, but TipTap's
@@ -50,6 +68,17 @@ export function createTurndown() {
 
   // sup/sub have no markdown syntax → keep them as inline HTML
   td.keep(['sup', 'sub'])
+
+  // Role blocks (paragraph roles) → ::: fenced div. The inner content is
+  // serialized normally; blank lines around the fences keep them block-level.
+  td.addRule('roleBlock', {
+    filter: (node) => node.nodeName === 'SECTION' && Boolean(node.getAttribute('data-role')),
+    replacement: (content, node) => {
+      const role = node.getAttribute('data-role')
+      const inner = content.replace(/^\n+/, '').replace(/\n+$/, '')
+      return `\n\n::: ${role}\n${inner}\n:::\n\n`
+    },
+  })
 
   // TipTap renders strike as <s> (the GFM plugin covers del/s/strike, but
   // keep an explicit rule to be safe)

@@ -66,4 +66,35 @@ for (const [name, probe] of probes) {
 const md3 = htmlToMarkdown(generateHTML(generateJSON(markdownToHtml(md2), extensions), extensions))
 console.log(md3 === md2 ? 'OK    round trip stable (md2 === md3)' : 'FAIL  round trip not stable')
 if (md3 !== md2) fail++
+
+// --- paragraph roles (::: container) round trip --------------------------------
+// Roles are STRUCTURE and live in the markdown; inner markdown (bold, lists,
+// multiple paragraphs) must survive, and the ::: fences must round-trip.
+const roleMd = `::: definition
+Die **Kartoffel** ist eine Nutzpflanze.
+
+- Knolle
+- Blüte
+:::`
+const roundtrip = (m) => htmlToMarkdown(generateHTML(generateJSON(markdownToHtml(m), extensions), extensions))
+const roleOut = roundtrip(roleMd)
+const roleStable = roundtrip(roleOut)
+console.log('--- role block markdown ---')
+console.log(roleOut)
+const roleProbes = [
+  ['role open fence', '::: definition'],
+  ['role close fence', ':::'],
+  ['inner bold survives', '**Kartoffel**'],
+  ['inner list survives', 'Knolle'],
+  ['inner list stays a list item', /^- +Knolle$/m.test(roleOut)],
+]
+for (const [name, probe] of roleProbes) {
+  const ok = typeof probe === 'boolean' ? probe : roleOut.includes(probe)
+  if (!ok) fail++
+  console.log(ok ? 'OK   ' : 'FAIL ', name, ok ? '' : JSON.stringify(probe))
+}
+const roleStableOk = roleStable === roleOut
+console.log(roleStableOk ? 'OK    role round trip stable' : 'FAIL  role round trip not stable')
+if (!roleStableOk) fail++
+
 process.exit(fail ? 1 : 0)

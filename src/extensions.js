@@ -14,9 +14,11 @@ import Superscript from '@tiptap/extension-superscript'
 import Subscript from '@tiptap/extension-subscript'
 import { Table, TableRow, TableHeader, TableCell } from '@tiptap/extension-table'
 import { TaskList, TaskItem } from '@tiptap/extension-list'
+import { RoleBlock } from './role-block.js'
 
 export function createExtensions() {
   return [
+    RoleBlock, // didactic paragraph roles (::: container), see role-block.js
     StarterKit.configure({
       undoRedo: false, // undo/redo is handled by Yjs
       underline: false, // no markdown equivalent — keep the round trip lossless

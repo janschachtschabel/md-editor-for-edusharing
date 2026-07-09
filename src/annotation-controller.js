@@ -123,6 +123,11 @@ export class AnnotationController {
   /** Validate (type rules, crossing rule) and append to the shared Y.Array. */
   _push({ quote, type, entityId, occurrence }, range, text) {
     const lang = this.getLang()
+    // Distinguish the two isValidQuote failure modes for a precise message
+    // (block-spanning quotes reach this point via the programmatic add() path)
+    if (quote.includes('\n')) {
+      return t(lang, 'controller.noBlockSpan')
+    }
     if (!isValidQuote(quote)) {
       return t(lang, 'controller.quoteTooLong', { max: MAX_QUOTE_LENGTH })
     }

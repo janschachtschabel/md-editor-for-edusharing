@@ -109,7 +109,7 @@ Alle produktiven Abhängigkeiten sind **permissiv lizenziert** (MIT/BSD/ISC,
 
 | Baustein | Funktion | Lizenz |
 |---|---|---|
-| **Express** (v4) | HTTP-Server (statisches Frontend + REST-API) | MIT |
+| **Express** (v5) | HTTP-Server (statisches Frontend + REST-API) | MIT |
 | **dotenv** | Konfiguration aus `.env` | BSD-2-Clause |
 | **esbuild** (dev) | Bundler für die Browser-Bundles | MIT |
 | **eslint** (dev) | Linting der gesamten Codebasis | MIT |
@@ -156,7 +156,7 @@ verlustfrei in Markdown (GFM) abbildbar sein**.
 | **Session-Store** | [`server/sessions.js`](../server/sessions.js) | opake Tokens, TTL, Revoke |
 | **Sicherheits-Guards** | [`server/guards.js`](../server/guards.js) | Rate-Limit, WS-Origin-Check, Node-ID-Validierung |
 | **Host-Seite** (Referenz-Einbettung) | [`src/host.js`](../src/host.js) | zeigt die Web-Component-Nutzung + Test-API-Anbindung |
-| **6 Testsuiten, CI, Docker** | `test/`, `.github/`, `.gitlab-ci.yml`, `Dockerfile` | Qualitätssicherung + Deployment |
+| **Testsuiten, CI, Docker** | `test/`, `.github/`, `.gitlab-ci.yml`, `Dockerfile` | Qualitätssicherung + Deployment |
 
 ---
 
@@ -575,7 +575,7 @@ src/markdown.js            Markdown ⇄ HTML (Server + Client identisch)
 src/host.js                Demo-Host-Seite (Referenz für die Angular-Einbettung)
 public/app-config.js       Laufzeit-Konfiguration (Backend-URL bei Cross-Origin)
 public/                    HTML, CSS, gebaute Bundles
-test/                      7 Testsuiten (npm test)
+test/                      Testsuiten (npm test)
 .github/ + .gitlab-ci.yml  CI: Build+Test, Docker-Image → ghcr.io / self-hosted
 Dockerfile · docker-compose.yml   All-in-One-Container
 docs/SEMANTISCHES-TAGGING.md      Design-Doku des semantischen Taggings
@@ -587,7 +587,7 @@ docs/audits/               Zwei Code-Audits (Findings behoben)
 ```bash
 npm install
 npm run dev     # baut beide Bundles + startet http://localhost:3000
-npm test        # 7 Suiten: Roundtrip, Annotationen, Typkatalog, Save-Bar, Guards, Sessions, API-Auth
+npm test        # alle Suiten (Liste = package.json "test"): Roundtrip, Annotationen, Typkatalog, Save-Bar, Guards, Sessions, API-Auth, i18n, Annotations-UI, Yjs-Reconnect, Keyword-Lifecycle
 npm run lint    # ESLint über die gesamte Codebasis
 ```
 

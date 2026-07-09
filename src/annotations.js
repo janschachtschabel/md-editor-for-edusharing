@@ -31,15 +31,18 @@ export function isValidType(type) {
 }
 
 /**
- * A quote must be non-empty and within a reasonable length. Without this
- * bound, an arbitrarily long single-line selection would be embedded
- * verbatim into a "Name (Typ)" keyword with no client-side feedback,
- * surfacing only as a late edu-sharing save error (audit L-1).
+ * A quote must be non-empty, within a reasonable length and single-block.
+ * Length: an arbitrarily long selection would be embedded verbatim into a
+ * "Name (Typ)" keyword with no client-side feedback, surfacing only as a
+ * late edu-sharing save error (audit L-1). Newline: the text index joins
+ * blocks with '\n', so a multi-block quote could anchor across a block
+ * boundary — the dialog path already rejects this, and validating it here
+ * closes the programmatic add() path too (audit F-T6).
  */
 export const MAX_QUOTE_LENGTH = 200
 export function isValidQuote(quote) {
   const q = String(quote || '')
-  return q.length > 0 && q.length <= MAX_QUOTE_LENGTH
+  return q.length > 0 && q.length <= MAX_QUOTE_LENGTH && !q.includes('\n')
 }
 
 /** Serialize an entity as a general keyword: "Weimar (Stadt)". */

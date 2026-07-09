@@ -1,34 +1,53 @@
 /**
- * Default entity-type catalog for semantic tagging — suggestions only, free
- * custom types remain allowed (validated by isValidType in annotations.js).
+ * Shared WLO didactic/entity vocabulary, split across TWO tagging systems:
  *
- * Two levels (per spec 07/2026):
- *   level 1: knowledge kind / didactic semantics (role of a text block)
- *   level 2: entity types markable in running text, grouped by domain
+ *   1. Block roles (DEFAULT_BLOCK_ROLES) — didactic knowledge kind / role of a
+ *      whole paragraph (Einleitung, Definition, Aufgabe…). These become `:::`
+ *      container markup IN the markdown (src/role-block.js) and NEVER reach
+ *      cclom:general_keyword — they describe structure, not content.
+ *   2. Entity types (DEFAULT_TYPE_GROUPS) — inline entities in running text
+ *      (Person, Ort, Fachbegriff…), stored as "Name (Typ)" keywords.
  *
- * Naming rules for type VALUES (they become part of the persisted keyword
- * "Name (Typ)"):
- *   - no parentheses (would break the keyword roundtrip parser) — e.g.
- *     "Methode (wissenschaftlich)" → "Wissenschaftliche Methode"
+ * Both draw their display labels + English translations from the SAME maps
+ * (TYPE_LABELS_EN below) so the two systems stay consistent.
+ *
+ * Naming rules for type/role VALUES:
+ *   - entity type VALUES have no parentheses (would break the "Name (Typ)"
+ *     keyword parser) — e.g. "Methode (wissenschaftlich)" → "Wissenschaftliche Methode"
  *   - slash pairs reduced to the primary term — e.g. "Fach / Fachgebiet" → "Fach"
+ *   - block role VALUES are slugs (roleSlug of the label), markdown-safe.
  *
- * i18n note: the VALUES below (and the persisted keyword built from them)
- * always stay German — they are the actual data stored in edu-sharing, and
- * changing them would break the roundtrip for already-tagged documents.
- * Only the on-screen LABEL is translated for the English UI, via
- * TYPE_LABELS_EN / GROUP_LABELS_EN + typeLabel()/groupLabel() below.
+ * i18n note: the German VALUES (and any persisted keyword/markup built from
+ * them) stay German — they are the actual stored data. Only the on-screen
+ * LABEL is translated for the English UI (TYPE_LABELS_EN/GROUP_LABELS_EN +
+ * typeLabel()/groupLabel()/roleLabel()).
  */
+
+/**
+ * Markdown-safe slug for a block role label: lowercase, umlauts transliterated,
+ * everything else collapsed to hyphens. "Lösung" → "loesung", "Übung" → "uebung".
+ */
+export function roleSlug(label) {
+  return String(label).trim().toLowerCase()
+    .replace(/ä/g, 'ae').replace(/ö/g, 'oe').replace(/ü/g, 'ue').replace(/ß/g, 'ss')
+    .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
+}
+
+/**
+ * Didactic block roles (former "level 1"). Each `{slug, label}`: the slug is
+ * what lands in the markdown (`::: definition`), the (German) label is what the
+ * UI shows. Free roles stay allowed — any slug is valid; only these get a
+ * translated label.
+ */
+export const DEFAULT_BLOCK_ROLES = [
+  'Einleitung', 'Motivation', 'Definition', 'Lerninhalt', 'Beispiel',
+  'Aufgabe', 'Lösung', 'These', 'Beweis', 'Verfahren', 'Algorithmus',
+  'Methode', 'Lernziel', 'Rahmenkontext', 'Kommentar', 'Anekdote',
+  'Zusammenfassung', 'Übung', 'Reflexion', 'Feedback', 'Vertiefung',
+  'Exkurs', 'Merksatz', 'Hinweis', 'Warnung', 'Voraussetzung',
+].map((label) => ({ slug: roleSlug(label), label }))
+
 export const DEFAULT_TYPE_GROUPS = [
-  {
-    label: 'Didaktik / Wissensart',
-    types: [
-      'Einleitung', 'Motivation', 'Definition', 'Lerninhalt', 'Beispiel',
-      'Aufgabe', 'Lösung', 'These', 'Beweis', 'Verfahren', 'Algorithmus',
-      'Methode', 'Lernziel', 'Rahmenkontext', 'Kommentar', 'Anekdote',
-      'Zusammenfassung', 'Übung', 'Reflexion', 'Feedback', 'Vertiefung',
-      'Exkurs', 'Merksatz', 'Hinweis', 'Warnung', 'Voraussetzung',
-    ],
-  },
   {
     label: 'Personen, Institutionen, Orte',
     types: ['Person', 'Organisation', 'Ort', 'Veranstaltung', 'Beruf'],
@@ -127,6 +146,19 @@ export function typeLabel(value, lang = 'de') {
 /** Display label for a default group heading — same fallback rule. */
 export function groupLabel(label, lang = 'de') {
   return lang === 'en' ? (GROUP_LABELS_EN[label] || label) : label
+}
+
+const ROLE_SLUG_TO_LABEL = new Map(DEFAULT_BLOCK_ROLES.map((r) => [r.slug, r.label]))
+
+/**
+ * Display label for a block-role slug (as stored in the markdown). Known slugs
+ * map back to their German label (and its English translation, reusing
+ * TYPE_LABELS_EN); an unknown/free slug is shown verbatim in both languages.
+ */
+export function roleLabel(slug, lang = 'de') {
+  const de = ROLE_SLUG_TO_LABEL.get(slug)
+  if (!de) return slug // free/custom role — no translation, show the slug
+  return lang === 'en' ? (TYPE_LABELS_EN[de] || de) : de
 }
 
 /**
