@@ -534,8 +534,14 @@ Kurzfassung der Prinzipien (Details und Trade-off-Tabellen im verlinkten Dokumen
   (Zitat + Typ) sind direkt verwertbar, halluzinierte Zitate fallen durch.
 - **Überlappung** — verschachtelt/deckungsgleich erlaubt, kreuzend abgelehnt.
 - **Persistenz** — als General Keywords `Name (Typ)` in
-  `cclom:general_keyword` via setProperty + Read-Back; Keywords ohne Muster
-  bleiben unangetastet (kein Überschreiben der geteilten Liste).
+  `cclom:general_keyword` via setProperty + Read-Back. **Editor-verwaltet ist
+  nur, was beim Laden als Annotation verankert wurde** (Muster `Name (Typ)`
+  **und** Zitat wörtlich im Text). Jedes andere Repo-Keyword — plain *oder*
+  parenthesiert, aber nicht als Entität geladen (z. B. eine bestehende
+  Disambiguierung `Merkur (Planet)`, deren Wort nicht im Text steht) — wird
+  unverändert durchgereicht und **nie** überschrieben. Diese Unterscheidung
+  (`preservedKeywords` vs. `serializeEntityKeywords` in `src/annotations.js`)
+  verhindert stillen Verlust bestehender Metadaten (Audit F-T1).
 - **Typ-Katalog** — zwei Ebenen (Didaktik/Wissensart + Entitätstypen,
   `src/entity-types.js`), freie Typen erlaubt (nur Klammern verboten).
 

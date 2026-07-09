@@ -21,7 +21,9 @@ import {
 import {
   getNodeInfo, loadMarkdown, saveKeywords, saveMarkdown, parseDocumentName,
 } from './edu-sharing-api.js'
-import { annotationsToKeywords, keywordsToAnnotations } from '../src/annotations.js'
+import {
+  keywordsToAnnotations, mergeKeywords, preservedKeywords, serializeEntityKeywords,
+} from '../src/annotations.js'
 import { resolveAuthToken } from './sessions.js'
 
 const extensions = createExtensions()
@@ -49,6 +51,25 @@ export const docAuth = new Map() // documentName → Basic auth header
  * exists then to duplicate against.
  */
 const docSnapshots = new Map() // documentName → {update: Uint8Array, markdown: string}
+
+/**
+ * Remember the current Yjs state of a document. Called on every store attempt
+ * AND on every load — the load-time snapshot is essential: Hocuspocus only
+ * flushes onStoreDocument on the last disconnect while a store is pending, so
+ * a document unloaded with NO changes since load would otherwise leave no
+ * snapshot behind and be rebuilt on the next load (→ duplicated text/pills
+ * against a still-live client, see test/collab-load.test.mjs).
+ * Capped so the map cannot grow without bound over the server's lifetime
+ * (Map insertion order = eviction order; re-setting refreshes the position).
+ */
+const MAX_SNAPSHOTS = 500
+function rememberSnapshot(documentName, document, markdown) {
+  docSnapshots.delete(documentName)
+  docSnapshots.set(documentName, { update: Y.encodeStateAsUpdate(document), markdown })
+  if (docSnapshots.size > MAX_SNAPSHOTS) {
+    docSnapshots.delete(docSnapshots.keys().next().value)
+  }
+}
 
 export function resolveAuth(documentName) {
   return docAuth.get(documentName) ?? ENV_AUTH ?? null
@@ -107,7 +128,7 @@ export async function persistDocument(documentName, document, manual = false) {
   const markdown = ydocToMarkdown(document)
   // Snapshot the live Yjs state on every store attempt (this also runs
   // immediately before the document is unloaded) — see docSnapshots above.
-  if (state) docSnapshots.set(documentName, { update: Y.encodeStateAsUpdate(document), markdown })
+  if (state) rememberSnapshot(documentName, document, markdown)
   if (!state || state.contentBlocked) {
     if (manual) broadcast(document, { event: 'save-error', message: 'Dieser Knoten kann nicht bearbeitet werden.' })
     return
@@ -126,11 +147,18 @@ export async function persistDocument(documentName, document, manual = false) {
     if (manual) broadcast(document, { event: 'save-error', message: 'Der angemeldete Account hat kein Schreibrecht auf diesen Knoten.' })
     return
   }
-  // Entity annotations (shared Y.Array) → general keywords "Name (Typ)";
-  // plain keywords from the repository are preserved
-  const keywords = annotationsToKeywords(document.getArray('annotations').toArray(), state.lastSavedKeywords)
+  // Entity annotations (shared Y.Array) → general keywords "Name (Typ)".
+  // Pre-existing, non-entity-managed keywords (state.preservedKeywords, fixed
+  // at load) are written back unchanged — only editor entities are (re)built
+  // from the current annotations (audit F-T1).
+  const entityKeywords = serializeEntityKeywords(document.getArray('annotations').toArray())
+  const keywords = mergeKeywords(state.preservedKeywords, entityKeywords)
   const markdownChanged = markdown !== state.lastSavedMarkdown
-  const keywordsChanged = !sameList(keywords, state.lastSavedKeywords)
+  // Unordered compare: merging moves entity keywords to the end, so the list
+  // can differ from the repo's order while being the same SET — a pure
+  // reordering must not trigger a write (it would pointlessly rewrite and
+  // reorder the repo's keyword list on every first save).
+  const keywordsChanged = !sameList(keywords, state.lastSavedKeywords, true)
   // Change detection: an identical state (e.g. formatting without markdown
   // effect, cursor moves) produces no repo write
   if (!markdownChanged && !keywordsChanged) {
@@ -227,6 +255,11 @@ export const hocuspocus = new Hocuspocus({
     // Preload the existing text from the repository (compendium property or
     // description — depending on mode)
     const markdown = loadMarkdown(info)
+    // Re-anchor stored entity keywords as annotations; `consumed` tells us
+    // which keywords are editor-managed. Everything else is preserved untouched
+    // (audit F-T1). Computed once here so it is consistent across both the
+    // rebuild and the snapshot-restore path below.
+    const { annotations, consumed } = keywordsToAnnotations(info.keywords || [], markdown)
     docState.set(documentName, {
       title: info.title,
       mode: info.mode,
@@ -234,7 +267,8 @@ export const hocuspocus = new Hocuspocus({
       canRepoWrite: (info.access || []).includes('Write'),
       writeTarget: info.originalId || nodeId,
       lastSavedMarkdown: markdown, // baseline for change detection
-      lastSavedKeywords: info.keywords || [], // baseline incl. plain keywords
+      lastSavedKeywords: info.keywords || [], // full baseline (change detection)
+      preservedKeywords: preservedKeywords(info.keywords || [], consumed), // non-entity keywords, fixed for the session
       lastSavedAt: null,
       lastChangedAt: null,
       lastError: null,
@@ -258,10 +292,12 @@ export const hocuspocus = new Hocuspocus({
     }
 
     const ydoc = markdownToYdoc(markdown)
-    // Re-anchor stored entity keywords ("Name (Typ)") as annotations via
-    // quote search in the text — entities whose quote is gone are skipped
-    const annotations = keywordsToAnnotations(info.keywords || [], markdown)
     if (annotations.length) ydoc.getArray('annotations').push(annotations)
+    // Snapshot immediately at load: a document unloaded WITHOUT changes never
+    // reaches persistDocument (Hocuspocus skips the store flush when nothing
+    // is pending), so without this line the next load would rebuild — and a
+    // briefly-disconnected but still-live client would duplicate everything.
+    rememberSnapshot(documentName, ydoc, markdown)
     console.log(`[load] ${documentName} "${info.title}" — mode ${info.mode}, ${markdown.length} chars, ${annotations.length} entities preloaded`)
     return ydoc
   },

@@ -76,7 +76,7 @@ export function findQuoteRange(text, quote, occurrence = 1) {
 /**
  * All occurrences of a quote in the text (empty array if not found). Used
  * for rendering: a tagged entity is ONE pill (one annotation, one keyword —
- * see annotationsToKeywords), but every mention of the same wording is
+ * see serializeEntityKeywords), but every mention of the same wording is
  * highlighted in the editor, not just the anchor occurrence.
  */
 export function findAllQuoteRanges(text, quote) {
@@ -127,12 +127,27 @@ export function resolveAnnotations(annotations, text) {
 
 /**
  * Load path: turn stored general keywords into annotations by locating each
- * entity's quote in the text (first occurrence). Plain keywords and entities
- * whose quote does not occur in the text are skipped.
+ * entity's quote in the text (first occurrence).
+ *
+ * A keyword is only "consumed" as an editor entity when it matches the
+ * "Name (Typ)" pattern AND its quote occurs verbatim in the text. This is the
+ * ONLY reliable signal that a keyword is editor-managed rather than
+ * pre-existing editorial metadata — the parenthesized shape alone is NOT
+ * enough, since human keywords use parentheses too (disambiguation like
+ * "Merkur (Planet)"). Anything not consumed (plain keywords AND parenthesized
+ * keywords whose word is absent) is reported back so the caller preserves it
+ * untouched (audit F-T1: pre-existing metadata must never vanish on save).
+ *
+ * @returns {{annotations: object[], consumed: string[]}} consumed = the exact
+ *   keyword strings that became annotations.
  */
 export function keywordsToAnnotations(keywords, text) {
   const annotations = []
+  const consumed = []
+  const seen = new Set() // exact duplicates in the repo list → one pill, not two
   for (const keyword of keywords || []) {
+    if (seen.has(keyword)) continue
+    seen.add(keyword)
     const parsed = parseKeyword(keyword)
     if (!parsed) continue
     if (!findQuoteRange(text, parsed.quote)) continue
@@ -142,22 +157,43 @@ export function keywordsToAnnotations(keywords, text) {
       occurrence: 1,
       type: parsed.type,
     })
+    consumed.push(keyword)
   }
-  return annotations
+  return { annotations, consumed }
 }
 
 /**
- * Save path: derive the general-keyword list from the annotations. Plain
- * (non-pattern) keywords from the repository are preserved, entity keywords
- * are rebuilt from the current annotations and deduplicated (two tags on
- * different occurrences of the same entity produce one keyword).
+ * The pre-existing keywords that are NOT editor-managed and must be written
+ * back unchanged: everything except the ones consumed as annotations.
  */
-export function annotationsToKeywords(annotations, existingKeywords = []) {
-  const plain = (existingKeywords || []).filter((k) => !parseKeyword(k))
-  const entity = []
+export function preservedKeywords(allKeywords, consumed) {
+  const consumedSet = new Set(consumed || [])
+  return (allKeywords || []).filter((k) => !consumedSet.has(k))
+}
+
+/**
+ * Save path (entities): serialize the current annotations to "Name (Typ)"
+ * keywords, deduplicated — two tags on different occurrences of the same
+ * entity produce one keyword.
+ */
+export function serializeEntityKeywords(annotations) {
+  const out = []
   for (const a of annotations || []) {
     const kw = formatKeyword(a)
-    if (!entity.includes(kw)) entity.push(kw)
+    if (!out.includes(kw)) out.push(kw)
   }
-  return [...plain, ...entity]
+  return out
+}
+
+/**
+ * Save path (final list): preserved pre-existing keywords first, then the
+ * current entity keywords, deduplicated. Preserved keeps its original order;
+ * an entity that coincides with a preserved keyword is not duplicated.
+ */
+export function mergeKeywords(preserved, entityKeywords) {
+  const out = [...(preserved || [])]
+  for (const kw of entityKeywords || []) {
+    if (!out.includes(kw)) out.push(kw)
+  }
+  return out
 }

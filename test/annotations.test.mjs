@@ -2,9 +2,9 @@
 // ("Name (Typ)"), quote→offset resolution, overlap validation (nested and
 // identical allowed, crossing rejected) and the keyword⇄annotation roundtrip.
 import {
-  annotationsToKeywords, findAllQuoteRanges, findQuoteRange, formatKeyword, isCrossing,
-  isValidQuote, keywordsToAnnotations, MAX_QUOTE_LENGTH, occurrenceOfIndex, parseKeyword,
-  resolveAnnotations,
+  findAllQuoteRanges, findQuoteRange, formatKeyword, isCrossing, isValidQuote,
+  keywordsToAnnotations, mergeKeywords, MAX_QUOTE_LENGTH, occurrenceOfIndex, parseKeyword,
+  preservedKeywords, resolveAnnotations, serializeEntityKeywords,
 } from '../src/annotations.js'
 
 let fail = 0
@@ -61,26 +61,62 @@ check('identical ranges are allowed', isCrossing(inst, { ...inst }) === false)
 check('disjoint ranges are allowed', isCrossing({ start: 0, end: 5 }, { start: 10, end: 12 }) === false)
 
 // --- keywords → annotations (load path) ---------------------------------------
-const kws = ['Optik', 'Weimar (Stadt)', 'Erfurt (Stadt)', 'huygenssches Prinzip (Fachbegriff)']
+// Only a parenthesized keyword whose quote is VERBATIM in the text is "consumed"
+// as an editor entity. Everything else (plain keywords AND parenthesized ones
+// whose word is absent) must be reported as NOT consumed so the caller can
+// preserve it untouched (audit F-T1 — pre-existing metadata must not vanish).
+const kws = ['Optik', 'Weimar (Stadt)', 'Merkur (Planet)', 'huygenssches Prinzip (Fachbegriff)']
 const doc = 'Das huygenssche Prinzip wurde in Weimar diskutiert. huygenssches Prinzip eben.'
-const seeded = keywordsToAnnotations(kws, doc)
+const { annotations: seeded, consumed } = keywordsToAnnotations(kws, doc)
 check('keywords without pattern are skipped', !seeded.some((a) => a.quote === 'Optik'))
-check('quote not found in text → skipped (Erfurt)', !seeded.some((a) => a.quote === 'Erfurt'))
+check('parenthesized keyword whose word is absent → skipped (Merkur)', !seeded.some((a) => a.quote === 'Merkur'))
 check('found entities are seeded with type',
   seeded.length === 2 && seeded.every((a) => a.id && a.occurrence === 1)
   && seeded.some((a) => a.quote === 'Weimar' && a.type === 'Stadt'))
+check('consumed = exactly the keywords turned into entities',
+  JSON.stringify([...consumed].sort()) === JSON.stringify(['Weimar (Stadt)', 'huygenssches Prinzip (Fachbegriff)'].sort()))
 
-// --- annotations → keywords (save path) ----------------------------------------
+// exact duplicate entity keywords in the repo list must not create two pills
+{
+  const dup = keywordsToAnnotations(['Weimar (Stadt)', 'Weimar (Stadt)'], 'Weimar ist schön.')
+  check('duplicate entity keyword → one pill, consumed once',
+    dup.annotations.length === 1 && dup.consumed.length === 1)
+}
+
+// preservedKeywords = everything NOT consumed (plain + parenthesized-but-absent)
+const preserved = preservedKeywords(kws, consumed)
+check('preserved keeps plain keyword (Optik)', preserved.includes('Optik'))
+check('preserved keeps parenthesized-but-absent keyword (Merkur (Planet))', preserved.includes('Merkur (Planet)'))
+check('preserved drops the consumed entity keywords', !preserved.includes('Weimar (Stadt)'))
+
+// --- annotations → entity keywords (save path) --------------------------------
 const anns = [
   { id: '1', quote: 'Weimar', occurrence: 1, type: 'Stadt' },
   { id: '2', quote: 'Weimar', occurrence: 2, type: 'Stadt' }, // duplicate entity
   { id: '3', quote: 'Marie Curie', occurrence: 1, type: 'Person' },
 ]
-const merged = annotationsToKeywords(anns, ['Optik', 'Weimar (Stadt)'])
-check('plain keywords are preserved', merged.includes('Optik'))
-check('entity keywords are deduplicated',
-  merged.filter((k) => k === 'Weimar (Stadt)').length === 1)
-check('new entities are appended', merged.includes('Marie Curie (Person)'))
+const entity = serializeEntityKeywords(anns)
+check('entity keywords are deduplicated', entity.filter((k) => k === 'Weimar (Stadt)').length === 1)
+check('every annotation type is serialized', entity.includes('Marie Curie (Person)'))
+
+// mergeKeywords: preserved (untouched) + current entities, deduplicated
+const finalList = mergeKeywords(preserved, entity)
+check('merge keeps preserved plain keyword', finalList.includes('Optik'))
+check('merge keeps preserved parenthesized-but-absent keyword', finalList.includes('Merkur (Planet)'))
+check('merge adds current entities', finalList.includes('Marie Curie (Person)'))
+check('merge has no duplicates', new Set(finalList).size === finalList.length)
+
+// --- F-T1 regression: full load→edit→save cycle preserves pre-existing metadata
+// A parenthesized keyword "Merkur (Planet)" whose "Merkur" is NOT in the text
+// must survive a save, even though the user only edited text (no tagging).
+{
+  const repoKeywords = ['Klimawandel', 'Merkur (Planet)']
+  const text = 'Ein Text ganz ohne den Planeten.'
+  const { annotations, consumed } = keywordsToAnnotations(repoKeywords, text)
+  const saved = mergeKeywords(preservedKeywords(repoKeywords, consumed), serializeEntityKeywords(annotations))
+  check('F-T1: pre-existing "Merkur (Planet)" survives a save it was never part of',
+    saved.includes('Merkur (Planet)') && saved.includes('Klimawandel'))
+}
 
 // --- resolveAnnotations ---------------------------------------------------------
 const resolved = resolveAnnotations([

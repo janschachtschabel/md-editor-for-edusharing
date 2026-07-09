@@ -347,7 +347,11 @@ md-collab-editor.mce-root { display: flex; flex-direction: column; flex: 1; }
 .mce-save-btn:not(:disabled):hover { border-color: var(--accent) !important; color: var(--accent); }
 .mce-save-btn:disabled { opacity: .45; cursor: default; }
 
-.mce-editor { flex: 1; padding: 1.5rem 2rem 4rem; max-width: 860px; width: 100%; margin: 0 auto; }
+/* Left-aligned writing area: max-width keeps lines readable on very wide
+   embeds, but the column starts at the left edge (margin 0, not auto) — a
+   centered column looked "shifted to the middle" once the component grew
+   wider than the max-width. */
+.mce-editor { flex: 1; padding: 1.5rem 2rem 4rem; max-width: 860px; width: 100%; margin: 0; }
 
 .tiptap {
   outline: none; /* replaced by a visible focus ring on the container below */

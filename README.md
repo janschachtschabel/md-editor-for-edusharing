@@ -211,10 +211,13 @@ Keyword-Roundtrip) steht in
   verschachtelt und deckungsgleich erlaubt, **kreuzend wird abgelehnt**.
 - **Persistenz:** Entitäten werden beim Speichern als General Keywords in der
   Form **`Weimar (Stadt)`** geschrieben (`cclom:general_keyword`, via
-  setProperty). Beim Laden werden Keywords in diesem Muster wieder eingelesen,
-  per Zitat-Suche im Text verankert und angezeigt; Keywords ohne Muster
-  bleiben unangetastet erhalten. Keywords werden — wie das Markdown — per
-  Read-Back verifiziert.
+  setProperty). **Editor-verwaltet ist nur, was beim Laden als Annotation
+  verankert wurde** — also ein Keyword im Muster `Name (Typ)`, dessen Zitat
+  **wörtlich im Text** vorkommt. Jedes andere Repo-Keyword bleibt unangetastet:
+  nicht nur schlichte Schlagwörter, sondern auch bereits vorhandene
+  Klammer-Keywords, deren Wort *nicht* im Text steht (z. B. eine
+  Disambiguierung `Merkur (Planet)`) — diese werden nie überschrieben oder
+  gelöscht. Keywords werden — wie das Markdown — per Read-Back verifiziert.
 - **KI-Anbindung:** `addAnnotation({quote, type})` nimmt KI-Ausgaben im
   Zitat-plus-Typ-Format entgegen (nicht auffindbare Zitate werden mit
   Fehlermeldung abgelehnt — eingebaute Halluzinations-Prüfung);

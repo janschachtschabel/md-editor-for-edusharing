@@ -215,9 +215,12 @@ type, entityId?}` in a dedicated `Y.Array` inside the same Yjs document
 offsets are always derived by deterministic string search ("quotes are for
 the AI, offsets are for the code"). Nested and identical spans are allowed,
 crossing spans are rejected. On save, entities are written as general
-keywords in the form **`Weimar (Stadt)`** (read-back verified); on load,
-keywords matching that pattern are parsed, re-anchored via quote search and
-displayed — plain keywords are preserved untouched.
+keywords in the form **`Weimar (Stadt)`** (read-back verified). **Only what was
+anchored as an annotation on load is editor-managed** — a `Name (Typ)` keyword
+whose quote occurs verbatim in the text. Every other repository keyword is
+preserved untouched: not just plain keywords, but also pre-existing
+parenthesized keywords whose word is *absent* from the text (e.g. a
+disambiguation `Merkur (Planet)`) — these are never overwritten or deleted.
 
 Two quirks verified on staging shaped the design:
 
