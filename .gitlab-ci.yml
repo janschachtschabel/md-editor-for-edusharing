@@ -37,7 +37,8 @@ variables:
 # Build + test — bundles must compile, every test suite must pass
 # (markdown round trip, annotations, entity types, save-bar logic, guards,
 # session store, API auth integration against a mocked edu-sharing, i18n key
-# parity, annotation UI).
+# parity, annotation UI, Yjs reconnect, keyword lifecycle, AI tagging
+# against a stubbed model).
 # -----------------------------------------------------------------------------
 build and test:
   stage: test

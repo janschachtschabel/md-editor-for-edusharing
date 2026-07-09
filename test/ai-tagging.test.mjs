@@ -38,7 +38,8 @@ const modelResponse = {
   roles: [
     { quote: 'Die Kartoffel ist eine Nutzpflanze.', role: 'definition' }, // valid
     { quote: 'Gibt es nicht im Text.', role: 'aufgabe' },                 // unknown quote → skip
-    { quote: 'Anna Mueller erforscht', role: 'Böse Rolle!!' },            // invalid slug → normalized or skipped
+    { quote: 'Anna Mueller erforscht', role: 'Böse Rolle!!' },            // invalid slug → skipped
+    { quote: 'Anna Mueller erforscht', role: 'beispiel' },                // valid (2nd paragraph)
   ],
 }
 let modelCalls = 0
@@ -60,11 +61,19 @@ const ydoc = TiptapTransformer.toYdoc(generateJSON(markdownToHtml(MD), extension
 const broadcasts = []
 ydoc.broadcastStateless = (s) => broadcasts.push(JSON.parse(s)) // capture status events
 
+// Count Yjs updates during the run: all role wraps must land in ONE
+// transaction (one update) so concurrent clients see one atomic change —
+// plus one update for the entity push ⇒ at most 2 in total.
+let updates = 0
+const countUpdates = () => updates++
+ydoc.on('update', countUpdates)
+
 const result = await runAiTagging({
   document: ydoc,
   documentName: 'test-doc',
   markdown: MD,
 })
+ydoc.off('update', countUpdates)
 
 // --- entities -------------------------------------------------------------------
 const anns = ydoc.getArray('annotations').toArray()
@@ -79,11 +88,14 @@ const mdAfter = htmlToMarkdown(generateHTML(TiptapTransformer.fromYdoc(ydoc, 'de
 check('valid role wraps the matching paragraph', /^::: definition$/m.test(mdAfter), mdAfter)
 check('wrapped paragraph keeps its text inside the fence',
   /::: definition\r?\nDie Kartoffel ist eine Nutzpflanze\. Sie stammt aus Suedamerika\.\r?\n:::/.test(mdAfter), mdAfter)
-check('unknown-quote role skipped (only one fence pair)',
-  (mdAfter.match(/^::: [a-z]/gm) || []).length === 1, mdAfter)
+check('second valid role wraps the second paragraph', /^::: beispiel$/m.test(mdAfter), mdAfter)
+check('unknown-quote + invalid-slug roles skipped (exactly two fences)',
+  (mdAfter.match(/^::: [a-z]/gm) || []).length === 2, mdAfter)
+check('all role wraps batched into ONE transaction (≤2 updates incl. entity push)',
+  updates <= 2, `updates=${updates}`)
 
 // --- result + status broadcasts --------------------------------------------------
-check('result reports counts', result.entities === 2 && result.roles === 1, result)
+check('result reports counts', result.entities === 2 && result.roles === 2, result)
 check('model was called exactly once', modelCalls === 1)
 check('request went to the configured b-api with model + key',
   globalThis.__lastModelRequest.url.includes('/chat/completions')
@@ -91,7 +103,7 @@ check('request went to the configured b-api with model + key',
   globalThis.__lastModelRequest)
 check('status broadcasts: started then done with counts',
   broadcasts.some((b) => b.event === 'ai-status' && b.phase === 'started')
-  && broadcasts.some((b) => b.event === 'ai-status' && b.phase === 'done' && b.entities === 2 && b.roles === 1),
+  && broadcasts.some((b) => b.event === 'ai-status' && b.phase === 'done' && b.entities === 2 && b.roles === 2),
   broadcasts)
 
 // --- second run: everything is a duplicate now → no new tags ---------------------
@@ -99,5 +111,144 @@ const result2 = await runAiTagging({ document: ydoc, documentName: 'test-doc', m
 check('re-run adds nothing (duplicates + already-roled block skipped)',
   result2.entities === 0 && result2.roles === 0
   && ydoc.getArray('annotations').length === 2, result2)
+
+// --- authorization gate (the REAL collab.js onStateless hook) --------------------
+// Read-only connections must not be able to use the AI as a write proxy —
+// the security check lives in server/collab.js, so drive that hook directly.
+{
+  const { hocuspocus } = await import('../server/collab.js')
+  const onStateless = hocuspocus.configuration.onStateless
+  const gateDoc = TiptapTransformer.toYdoc(generateJSON(markdownToHtml(MD), extensions), 'default', extensions)
+  const gateBroadcasts = []
+  gateDoc.broadcastStateless = (s) => gateBroadcasts.push(JSON.parse(s))
+
+  const callsBefore = modelCalls
+  await onStateless({
+    payload: JSON.stringify({ event: 'ai-tag' }),
+    document: gateDoc, documentName: 'gate-doc',
+    connection: { readOnly: true },
+  })
+  check('read-only connection: model NOT called', modelCalls === callsBefore)
+  check('read-only connection: no-write error broadcast',
+    gateBroadcasts.some((b) => b.event === 'ai-status' && b.code === 'no-write'), gateBroadcasts)
+  check('read-only connection: document unchanged',
+    gateDoc.getArray('annotations').length === 0)
+
+  await onStateless({
+    payload: JSON.stringify({ event: 'ai-tag' }),
+    document: gateDoc, documentName: 'gate-doc',
+    connection: { readOnly: false },
+  })
+  check('writable connection: model called + tags applied',
+    modelCalls === callsBefore + 1 && gateDoc.getArray('annotations').length === 2)
+}
+
+// --- busy lock: only one run per document at a time -------------------------------
+{
+  let release
+  const gate = new Promise((r) => { release = r })
+  const plainFetch = globalThis.fetch
+  globalThis.fetch = async (...args) => { await gate; return plainFetch(...args) }
+
+  const busyDoc = TiptapTransformer.toYdoc(generateJSON(markdownToHtml(MD), extensions), 'default', extensions)
+  const busyBroadcasts = []
+  busyDoc.broadcastStateless = (s) => busyBroadcasts.push(JSON.parse(s))
+
+  const first = runAiTagging({ document: busyDoc, documentName: 'busy-doc', markdown: MD })
+  await new Promise((r) => setTimeout(r, 10)) // let run 1 acquire the lock
+  const second = await runAiTagging({ document: busyDoc, documentName: 'busy-doc', markdown: MD })
+  check('second concurrent run is rejected as busy',
+    second.error === 'busy' && busyBroadcasts.some((b) => b.code === 'busy'), second)
+  release()
+  const firstResult = await first
+  check('first run completes normally after the busy rejection',
+    firstResult.entities === 2 && firstResult.roles === 2, firstResult)
+  globalThis.fetch = plainFetch
+}
+
+// --- stale suggestions: document changed WHILE the model was thinking --------------
+// The markdown snapshot goes to the model at T0; users keep editing. Role
+// quotes are re-matched against the CURRENT doc at apply time — a vanished
+// paragraph must be skipped gracefully, never crash or wrap the wrong block.
+{
+  let release
+  const gate = new Promise((r) => { release = r })
+  const plainFetch = globalThis.fetch
+  globalThis.fetch = async (...args) => { await gate; return plainFetch(...args) }
+
+  const staleDoc = TiptapTransformer.toYdoc(generateJSON(markdownToHtml(MD), extensions), 'default', extensions)
+  staleDoc.broadcastStateless = () => {}
+  const run = runAiTagging({ document: staleDoc, documentName: 'stale-doc', markdown: MD })
+  await new Promise((r) => setTimeout(r, 10))
+  // Concurrent edit while the model "thinks": remove ALL content
+  const frag = staleDoc.getXmlFragment('default')
+  staleDoc.transact(() => frag.delete(0, frag.length))
+  release()
+  const staleResult = await run
+  check('stale role suggestions are skipped (no matching block left)',
+    staleResult.roles === 0 && !staleResult.error, staleResult)
+  check('stale run does not corrupt the emptied document',
+    staleDoc.getXmlFragment('default').length === 0)
+}
+
+// --- multi-paragraph roles: quote (first block) + endQuote (last block) -----------
+// An Einleitung can span several paragraphs — the model marks the range via an
+// exact quote from the FIRST and an optional exact quote from the LAST block.
+{
+  const SPAN_MD = `Erster Satz der Einleitung.
+
+Zweiter Absatz der Einleitung.
+
+Hier beginnt der Hauptteil.`
+  const plainFetch = globalThis.fetch
+  globalThis.fetch = async () => ({
+    ok: true, status: 200, headers: { get: () => 'application/json' },
+    json: async () => ({ choices: [{ message: { content: JSON.stringify({
+      entities: [],
+      roles: [
+        // spans paragraphs 1–2, paragraph 3 stays outside
+        { quote: 'Erster Satz der Einleitung.', endQuote: 'Zweiter Absatz der Einleitung.', role: 'einleitung' },
+        // endQuote unknown → must fall back to wrapping only the start block
+        { quote: 'Hier beginnt der Hauptteil.', endQuote: 'Gibt es nicht.', role: 'lerninhalt' },
+      ],
+    }) } }] }),
+  })
+
+  const spanDoc = TiptapTransformer.toYdoc(generateJSON(markdownToHtml(SPAN_MD), extensions), 'default', extensions)
+  spanDoc.broadcastStateless = () => {}
+  const spanResult = await runAiTagging({ document: spanDoc, documentName: 'span-doc', markdown: SPAN_MD })
+  const spanMd = htmlToMarkdown(generateHTML(TiptapTransformer.fromYdoc(spanDoc, 'default'), extensions))
+
+  check('multi-paragraph role wraps BOTH intro paragraphs in one fence',
+    /::: einleitung\r?\nErster Satz der Einleitung\.\r?\n\r?\nZweiter Absatz der Einleitung\.\r?\n:::/.test(spanMd), spanMd)
+  check('paragraph after the range stays OUTSIDE the intro fence',
+    !/::: einleitung[\s\S]*Hauptteil[\s\S]*?\n:::\s*$/.test(spanMd.split('::: lerninhalt')[0] + ':::'), spanMd)
+  check('unknown endQuote falls back to single-block wrap',
+    /::: lerninhalt\r?\nHier beginnt der Hauptteil\.\r?\n:::/.test(spanMd), spanMd)
+  check('span run reports two roles', spanResult.roles === 2, spanResult)
+  globalThis.fetch = plainFetch
+}
+
+// --- multi-paragraph range must not swallow an existing role block ----------------
+{
+  const plainFetch = globalThis.fetch
+  globalThis.fetch = async () => ({
+    ok: true, status: 200, headers: { get: () => 'application/json' },
+    json: async () => ({ choices: [{ message: { content: JSON.stringify({
+      entities: [],
+      // range would span across the pre-existing merksatz block → must stop before it
+      roles: [{ quote: 'Absatz eins.', endQuote: 'Absatz drei.', role: 'einleitung' }],
+    }) } }] }),
+  })
+  const HTML = '<p>Absatz eins.</p><section data-role="merksatz"><p>Wichtig!</p></section><p>Absatz drei.</p>'
+  const guardDoc = TiptapTransformer.toYdoc(generateJSON(HTML, extensions), 'default', extensions)
+  guardDoc.broadcastStateless = () => {}
+  await runAiTagging({ document: guardDoc, documentName: 'guard-doc', markdown: 'Absatz eins.\n\nWichtig!\n\nAbsatz drei.' })
+  const guardMd = htmlToMarkdown(generateHTML(TiptapTransformer.fromYdoc(guardDoc, 'default'), extensions))
+  check('range stops before an existing role block (merksatz not swallowed)',
+    /::: einleitung\r?\nAbsatz eins\.\r?\n:::/.test(guardMd)
+    && /::: merksatz\r?\nWichtig!\r?\n:::/.test(guardMd), guardMd)
+  globalThis.fetch = plainFetch
+}
 
 process.exit(fail ? 1 : 0)

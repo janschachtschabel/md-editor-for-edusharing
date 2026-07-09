@@ -45,6 +45,7 @@ All dependencies are permissively licensed (MIT/BSD/ISC, no copyleft) — see
 | edu-sharing binding ([server/edu-sharing-api.js](server/edu-sharing-api.js)) | storage targets, the `setProperty` detour (MDS quirk), access checks, **read-back verification** |
 | Persistence control ([server/collab.js](server/collab.js)) | buffering strategy, change detection, error retry, save-state broadcast (details below) |
 | Session & security layer ([sessions.js](server/sessions.js), [guards.js](server/guards.js)) | opaque login/ticket sessions, rate limit, WS origin check, node-ID validation |
+| AI auto-tagging ([server/ai-tagging.js](server/ai-tagging.js)) | B-API integration, model suggestions validated like human input, write-permission gate, presence appearance |
 | Host page, test suites, CI (GitHub + GitLab), Docker | reference embedding + quality assurance |
 
 ## Architecture
@@ -98,13 +99,17 @@ Optionally create a `.env` (template: [.env.example](.env.example)):
 
 With a B-API key configured, the toolbar shows an **"🤖 AI tagging"** button:
 the AI briefly joins as a visible co-writer (presence chip "🤖 KI-Tagger"),
-detects **entities** (exact quotes + type → pills/keywords) and **paragraph
-roles** (quote + role slug → `:::` blocks), applies both to the shared
+detects **entities** (shortest possible exact quotes + type → pills/keywords)
+and **paragraph roles** (quote + role slug → `:::` blocks; sections spanning
+**multiple paragraphs** are wrapped as one), applies both to the shared
 document after validation, and leaves again. AI suggestions pass the exact
 same validation as human input (hallucinated quotes, crossing spans,
 duplicates and non-catalog roles are dropped). The API key never leaves the
-server; triggering requires a write-enabled connection. Implementation is
-encapsulated in [server/ai-tagging.js](server/ai-tagging.js).
+server; triggering requires a write-enabled connection (enforced server-side
+and covered by tests). At most one AI run per document at a time; if the model
+call fails, the error is shown immediately — clicking again is the retry
+(deliberately no automatic one). Implementation is encapsulated in
+[server/ai-tagging.js](server/ai-tagging.js).
 
 ## Testing the demo (multiple users)
 
@@ -126,9 +131,11 @@ annotation logic (keyword roundtrip, quote search, crossing rule, quote
 rules), entity-type catalog, save-bar logic, security guards, session store,
 an API integration that runs the real server against a mocked repository,
 i18n key parity (de/en), the annotation UI (dialogs incl. focus management,
-jsdom), plus two server integration suites against a stubbed repository
+jsdom), two server integration suites against a stubbed repository
 (Yjs reconnect without duplication; keyword lifecycle: pre-existing keywords
-survive entity changes).
+survive entity changes), and AI auto-tagging against a stubbed model
+(validation, read-only gate, busy lock, stale suggestions during concurrent
+edits).
 
 ## Embedding the web component
 

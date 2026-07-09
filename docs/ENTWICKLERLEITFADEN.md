@@ -592,7 +592,7 @@ docs/audits/               Zwei Code-Audits (Findings behoben)
 ```bash
 npm install
 npm run dev     # baut beide Bundles + startet http://localhost:3000
-npm test        # alle Suiten (Liste = package.json "test"): Roundtrip, Annotationen, Typkatalog, Save-Bar, Guards, Sessions, API-Auth, i18n, Annotations-UI, Yjs-Reconnect, Keyword-Lifecycle
+npm test        # alle Suiten (Liste = package.json "test"): Roundtrip, Annotationen, Typkatalog, Save-Bar, Guards, Sessions, API-Auth, i18n, Annotations-UI, Yjs-Reconnect, Keyword-Lifecycle, KI-Tagging (gestubbtes Modell)
 npm run lint    # ESLint über die gesamte Codebasis
 ```
 

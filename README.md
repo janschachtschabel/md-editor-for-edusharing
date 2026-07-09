@@ -45,6 +45,7 @@ siehe [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
 | edu-sharing-Anbindung ([server/edu-sharing-api.js](server/edu-sharing-api.js)) | Speicherziele, `setProperty`-Umweg (MDS-Quirk), Access-Checks, **Read-Back-Verifikation** |
 | Persistenz-Regelung ([server/collab.js](server/collab.js)) | Puffer-Strategie, Änderungserkennung, Fehler-Retry, Save-Status-Broadcast (Details unten) |
 | Session- & Sicherheits-Schicht ([sessions.js](server/sessions.js), [guards.js](server/guards.js)) | opake Login-/Ticket-Sessions, Rate-Limit, WS-Origin-Check, Node-ID-Validierung |
+| KI-Verschlagwortung ([server/ai-tagging.js](server/ai-tagging.js)) | B-API-Anbindung, Validierung der Modell-Vorschläge wie Nutzereingaben, Schreibrecht-Gate, Presence-Auftritt |
 | Host-Seite, Testsuiten, CI (GitHub + GitLab), Docker | Referenz-Einbettung + Qualitätssicherung |
 
 ## Architektur
@@ -98,13 +99,17 @@ Optional `.env` anlegen (Vorlage: [.env.example](.env.example)):
 
 Ist ein B-API-Key konfiguriert, erscheint in der Toolbar der Button
 **„🤖 KI-Tagging"**: Die KI tritt kurz als sichtbarer Mitschreiber bei
-(Presence-Chip „🤖 KI-Tagger"), erkennt **Entitäten** (exakte Zitate + Typ →
-Pillen/Keywords) und **Absatzrollen** (Zitat + Rollen-Slug → `:::`-Blöcke),
+(Presence-Chip „🤖 KI-Tagger"), erkennt **Entitäten** (kürzestmögliche exakte
+Zitate + Typ → Pillen/Keywords) und **Absatzrollen** (Zitat + Rollen-Slug →
+`:::`-Blöcke; bei zusammengehörigen Abschnitten auch über **mehrere Absätze**),
 trägt beides validiert ins geteilte Dokument ein und verlässt den Editor
 wieder. Alle KI-Vorschläge durchlaufen dieselbe Validierung wie menschliche
 Eingaben (halluzinierte Zitate, Kreuzungen, Duplikate und Nicht-Katalog-Rollen
 werden verworfen). Der API-Key bleibt ausschließlich auf dem Server; der
-Auslöser braucht eine Schreibverbindung. Implementierung gekapselt in
+Auslöser braucht eine Schreibverbindung (serverseitig erzwungen und getestet).
+Pro Dokument läuft höchstens ein KI-Lauf gleichzeitig; schlägt der Modell-Call
+fehl, wird das sofort angezeigt — erneut klicken ist der Retry (bewusst kein
+automatischer). Implementierung gekapselt in
 [server/ai-tagging.js](server/ai-tagging.js).
 
 ## Demo testen (mehrere Benutzer)
@@ -127,9 +132,11 @@ Task-Listen), Annotations-Logik (Keyword-Roundtrip, Zitat-Suche,
 Kreuzungsverbot, Zitat-Regeln), Entitätstyp-Katalog, Save-Bar-Logik,
 Security-Guards, Session-Store, eine API-Integration, die den echten Server
 gegen ein Mock-Repo fährt, i18n-Schlüssel-Parität (de/en), die Annotations-UI
-(Dialoge inkl. Fokus-Management, jsdom) sowie zwei Server-Integrationssuiten
+(Dialoge inkl. Fokus-Management, jsdom), zwei Server-Integrationssuiten
 gegen ein gestubbtes Repo (Yjs-Reconnect ohne Duplikate, Keyword-Lifecycle:
-bestehende Schlagwörter überleben Entitäts-Änderungen).
+bestehende Schlagwörter überleben Entitäts-Änderungen) sowie die
+KI-Verschlagwortung gegen ein gestubbtes Modell (Validierung, Read-only-Gate,
+Busy-Lock, veraltete Vorschläge bei parallelen Edits).
 
 ## Web Component einbinden
 

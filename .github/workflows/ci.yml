@@ -53,5 +53,6 @@ jobs:
         # All suites (list = package.json "test"): roundtrip, annotations,
         # entity-types, save-state, guards, sessions, api-auth (spawns the
         # real server against a mock repo), i18n key parity, annotation-ui
-        # (jsdom), collab-load (Yjs reconnect), keyword-lifecycle
+        # (jsdom), collab-load (Yjs reconnect), keyword-lifecycle,
+        # ai-tagging (stubbed model: validation, read-only gate, busy lock)
         run: npm test

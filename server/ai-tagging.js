@@ -48,15 +48,21 @@ function buildPrompt(markdown, existingEntities) {
     {
       role: 'system',
       content: `Du bist ein Verschlagwortungs-Assistent für deutsche Lehrtexte (Markdown).
-Antworte AUSSCHLIESSLICH mit einem JSON-Objekt: {"entities": [{"quote","type"}], "roles": [{"quote","role"}]}.
+Antworte AUSSCHLIESSLICH mit einem JSON-Objekt: {"entities": [{"quote","type"}], "roles": [{"quote","role","endQuote"?}]}.
 
 ENTITÄTEN (inline): Erkenne bedeutungstragende Entitäten im Fließtext.
 - "quote" ist ein EXAKTES, wörtliches Zitat aus dem Text (max. 200 Zeichen, kein Zeilenumbruch, keine Markdown-Syntax).
+- "quote" ist die KÜRZESTE Wortgruppe, die die Entität exakt benennt — NUR der Eigenname/Begriff selbst, keine umgebenden Wörter.
+  Richtig: "Christoph Kolumbus" · Falsch: "Entdeckungsreisen von Christoph Kolumbus".
 - "type" bevorzugt aus diesem Katalog: ${types}. Freie Typen erlaubt, aber KEINE Klammern im Typ.
 - Bereits getaggt (nicht erneut vorschlagen): ${existing}
 
-ABSATZROLLEN (block): Bestimme für Absätze mit klarer didaktischer Funktion eine Rolle.
-- "quote" ist ein EXAKTES wörtliches Zitat aus dem betreffenden Absatz (z. B. sein erster Satz).
+ABSATZROLLEN (block): Bestimme für Absätze/Abschnitte mit klarer didaktischer Funktion eine Rolle.
+- "quote" ist ein EXAKTES wörtliches Zitat aus dem ERSTEN Absatz des Abschnitts (z. B. sein erster Satz).
+- Prüfe bei JEDER Rolle aktiv, ob auch die FOLGENDEN Absätze inhaltlich noch zum selben Abschnitt gehören —
+  eine Einleitung oder Zusammenfassung ist oft 2–3 Absätze lang. Wenn ja, gib zusätzlich "endQuote":
+  ein EXAKTES wörtliches Zitat aus dem LETZTEN zugehörigen Absatz. Bei einem einzelnen Absatz "endQuote" weglassen.
+  Beispiel: {"quote": "Herzlich willkommen zur Einheit!", "endQuote": "Damit sind wir startklar.", "role": "einleitung"}
 - "role" ist ein Slug aus: ${roles}
 - Absätze, die bereits in einem :::-Block stecken, NICHT erneut vorschlagen.
 
@@ -66,6 +72,13 @@ Nur sichere Vorschläge. Lieber weniger und korrekt als viel und geraten.`,
   ]
 }
 
+/**
+ * One-shot model call — deliberately NO automatic retry (unlike the repo
+ * persistence path with its 30s retry): the run is user-triggered, the
+ * failure is reported immediately via an ai-status broadcast, and the 🤖
+ * button stays available — clicking again IS the retry, without the server
+ * holding state or double-spending tokens on transient upstream errors.
+ */
 async function callModel(markdown, existingEntities) {
   const res = await fetch(`${AI_BASE_URL}/chat/completions`, {
     method: 'POST',
@@ -144,36 +157,58 @@ const KNOWN_ROLES = new Set(DEFAULT_BLOCK_ROLES.map((r) => r.slug))
  * elements (same structure markdownToYdoc produces). Blocks already inside a
  * roleBlock, unknown quotes and non-catalog roles are skipped. Returns the
  * number wrapped.
+ *
+ * Concurrency note: Yjs has no "move" primitive — wrapping necessarily
+ * REPLACES the block (clone → delete → insert), so remote keystrokes that
+ * target exactly this block and are still in flight at the instant of the
+ * replacement are lost (they integrate into the tombstoned node). This is
+ * inherent to Yjs XML wrapping (client-side wraps share it) and the window is
+ * a network round trip. Two mitigations: quotes are re-matched against the
+ * CURRENT doc right before wrapping (stale suggestions from the model-latency
+ * window are skipped, see test), and ALL wraps run in ONE transaction so
+ * clients receive a single atomic update instead of N windows.
  */
 function applyRoles(document, suggestions) {
   const frag = document.getXmlFragment('default')
   let wrapped = 0
-  const usedIndices = new Set()
-  for (const s of suggestions) {
-    const quote = typeof s?.quote === 'string' ? s.quote.trim() : ''
-    const slug = roleSlug(typeof s?.role === 'string' ? s.role : '')
-    if (!quote || !KNOWN_ROLES.has(slug)) continue
-    // Find the first not-yet-roled top-level block containing the quote
-    let index = -1
-    for (let i = 0; i < frag.length; i++) {
-      if (usedIndices.has(i)) continue
-      const child = frag.get(i)
-      if (!(child instanceof Y.XmlElement) || child.nodeName === 'roleBlock') continue
-      if (ytextOf(child).includes(quote)) { index = i; break }
-    }
-    if (index < 0) continue // quote not found outside existing role blocks
-    document.transact(() => {
-      const child = frag.get(index)
-      const clone = child.clone()
+  document.transact(() => {
+    for (const s of suggestions) {
+      const quote = typeof s?.quote === 'string' ? s.quote.trim() : ''
+      const endQuote = typeof s?.endQuote === 'string' ? s.endQuote.trim() : ''
+      const slug = roleSlug(typeof s?.role === 'string' ? s.role : '')
+      if (!quote || !KNOWN_ROLES.has(slug)) continue
+      // Find the first not-yet-roled top-level block containing the quote.
+      // (Already-wrapped blocks are roleBlock elements and skipped — this also
+      // keeps a later suggestion from re-matching text wrapped moments ago.)
+      let start = -1
+      for (let i = 0; i < frag.length; i++) {
+        const child = frag.get(i)
+        if (!(child instanceof Y.XmlElement) || child.nodeName === 'roleBlock') continue
+        if (ytextOf(child).includes(quote)) { start = i; break }
+      }
+      if (start < 0) continue // quote not found outside existing role blocks
+      // Multi-paragraph sections: an optional endQuote (from the section's
+      // LAST paragraph) extends the range forward — but never across an
+      // existing role block, and an unknown endQuote falls back to the
+      // single start block (endQuote is untrusted model output too).
+      let end = start
+      if (endQuote) {
+        for (let i = start; i < frag.length; i++) {
+          const child = frag.get(i)
+          if (!(child instanceof Y.XmlElement) || child.nodeName === 'roleBlock') break
+          if (ytextOf(child).includes(endQuote)) { end = i; break }
+        }
+      }
+      const clones = []
+      for (let i = start; i <= end; i++) clones.push(frag.get(i).clone())
       const roleEl = new Y.XmlElement('roleBlock')
       roleEl.setAttribute('role', slug)
-      roleEl.insert(0, [clone])
-      frag.delete(index, 1)
-      frag.insert(index, [roleEl])
-    })
-    usedIndices.add(index)
-    wrapped++
-  }
+      roleEl.insert(0, clones)
+      frag.delete(start, end - start + 1)
+      frag.insert(start, [roleEl])
+      wrapped++
+    }
+  })
   return wrapped
 }
 

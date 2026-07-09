@@ -280,9 +280,15 @@ Server-Feature verdrahtet ([server/ai-tagging.js](../server/ai-tagging.js)):
 Der 🤖-Button (sichtbar, wenn serverseitig `AI_API_KEY` konfiguriert ist)
 schickt `{event:'ai-tag'}` über den Kollaborationskanal; der Server tritt als
 Presence-Teilnehmer „🤖 KI-Tagger" bei, fragt die B-API (OpenAI-Passthrough,
-Modell `AI_MODEL`) nach Entitäten + Rollen als **exakten Zitaten**, validiert
-sie mit exakt denselben Regeln wie menschliche Eingaben (Zitat muss existieren,
-kein Kreuzen, keine Duplikate, Rollen nur aus dem Katalog) und wendet sie auf
+Modell `AI_MODEL`) nach Entitäten + Rollen als **exakten Zitaten** — für
+Entitäten die **kürzeste** Wortgruppe, die die Entität benennt (nur der Name,
+keine umgebenden Wörter); für Rollen `quote` aus dem ersten und optional
+`endQuote` aus dem letzten Absatz eines **mehrabsätzigen** Abschnitts (der
+Server umhüllt dann den zusammenhängenden Bereich, stoppt aber an bestehenden
+Rollen-Blöcken; unbekanntes `endQuote` fällt auf den Einzelblock zurück,
+getestet) —, validiert sie mit exakt denselben Regeln wie menschliche Eingaben
+(Zitat muss existieren, kein Kreuzen, keine Duplikate, Rollen nur aus dem
+Katalog) und wendet sie auf
 das geteilte Y.Doc an — Pillen, Decorations und `:::`-Blöcke aktualisieren sich
 bei allen Clients über die normalen Sync-Wege. Status läuft als
 `ai-status`-Broadcast (started/done/error mit Codes, clientseitig übersetzt);
@@ -319,6 +325,17 @@ und deshalb Teil des geteilten Extension-Sets für Server und Browser.
 - **Rollen-Nesting-Tiefe** — Verschachtelung funktioniert (Sub-Markierung),
   ist aber didaktisch für 1–2 Ebenen gedacht; tiefe Schachtelung ist erlaubt,
   aber nicht sinnvoll begrenzt.
+- **Rollen-Wrap ersetzt den Block (Yjs hat kein „Move")** — jedes Umhüllen
+  (manuell wie KI) muss den Block klonen und ersetzen. Tastenanschläge, die
+  **exakt im Ersetzungsmoment** für genau diesen Block unterwegs sind
+  (Fenster ≈ eine Netzwerk-Roundtrip), gehen verloren — inhärente
+  Yjs-Eigenschaft. Abmilderung beim KI-Tagging: Zitate werden unmittelbar vor
+  dem Wrap gegen den **aktuellen** Stand aufgelöst (veraltete Vorschläge aus
+  der Modell-Latenz werden übersprungen, getestet) und alle Wraps laufen in
+  **einer** Transaktion (ein atomares Update statt N Fenster, getestet).
+- **KI-Call ohne Auto-Retry (bewusst)** — der Lauf ist nutzergetriggert,
+  Fehler kommen sofort als `ai-status`-Broadcast zurück; erneut klicken IST
+  der Retry (im Gegensatz zur Repo-Persistenz mit ihrem 30-s-Retry).
 - **Chip-Entfernen bei Block-erstes-Kind-ist-Rolle** — das ✕ löst den Wrapper
   an der Position des Chips auf; liegt am Blockanfang direkt ein verschachtelter
   Rollen-Block (kein führender Absatz), kann die Auflösung den inneren treffen —
