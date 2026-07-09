@@ -97,4 +97,41 @@ const roleStableOk = roleStable === roleOut
 console.log(roleStableOk ? 'OK    role round trip stable' : 'FAIL  role round trip not stable')
 if (!roleStableOk) fail++
 
+// --- NESTED role blocks (sub-marking inside a tagged paragraph) -----------------
+const nestedMd = `::: these
+Satz eins.
+
+::: definition
+Satz zwei.
+:::
+
+Satz drei.
+:::`
+const nestedOut = roundtrip(nestedMd)
+const nestedStable = roundtrip(nestedOut)
+console.log('--- nested role block markdown ---')
+console.log(nestedOut)
+// Structural check: the parsed doc must have a roleBlock(definition) NESTED
+// inside a roleBlock(these) — not a mangled/collapsed inner fence.
+const nestedJson = generateJSON(markdownToHtml(nestedOut), extensions)
+function findNested(node, outer = null) {
+  const role = node.type === 'roleBlock' ? node.attrs?.role : null
+  if (role && outer) return { outer, inner: role }
+  for (const c of node.content || []) {
+    const hit = findNested(c, role || outer)
+    if (hit) return hit
+  }
+  return null
+}
+const nesting = findNested(nestedJson)
+const nestedProbes = [
+  ['inner Definition is NESTED inside outer These', nesting && nesting.outer === 'these' && nesting.inner === 'definition'],
+  ['inner fence stays on its own line (not collapsed)', /::: definition\r?\nSatz zwei\./.test(nestedOut)],
+  ['nested round trip stable', nestedStable === nestedOut],
+]
+for (const [name, ok] of nestedProbes) {
+  if (!ok) fail++
+  console.log(ok ? 'OK   ' : 'FAIL ', name)
+}
+
 process.exit(fail ? 1 : 0)

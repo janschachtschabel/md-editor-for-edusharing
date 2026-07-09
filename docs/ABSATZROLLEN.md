@@ -17,9 +17,21 @@ Ebene-1-Typen als Block-Rollen").
 
 Rollen erreichen `cclom:general_keyword` **per Konstruktion** nie — sie stehen im
 Markdown (Compendium-Property), Entitäten laufen weiter über den Standoff→Keyword-Pfad.
-Umgesetzt wurde die Block-Granularität (v1); die im folgenden Konzept beschriebene
-automatische Absatz-Teilung bei Satz-Auswahl bleibt Ausbaustufe (aktuell:
-Satz zuerst per Enter zu eigenem Absatz machen, dann Rolle setzen).
+
+**Granularität (umgesetzt):**
+
+- **Ganzer Absatz:** Cursor in den Absatz → Rolle im `¶ Rolle …`-Select wählen
+  (bzw. „— keine Rolle —" entfernt sie).
+- **Teil-Auswahl / Untermarkierung:** Wird nur ein Satz(teil) markiert und eine
+  Rolle gewählt, **teilt der Editor den Absatz automatisch**: der markierte Teil
+  wird ein eigener Rollen-Block. Liegt er in einem bereits getaggten Absatz,
+  **verschachtelt** sich der neue Block darin (z. B. ein `Merksatz` innerhalb
+  einer `These`) — die umgebenden Sätze behalten ihre Rolle. Der Markdown
+  nutzt dafür geschachtelte `:::` (fence-zählender Parser in `markdown.js`).
+- **Rollen-Pillen:** Alle Absatzrollen erscheinen als **amberfarbene Chips** in
+  einer eigenen Leiste unter der Toolbar (getrennt von den blauen Entitäten-
+  Chips). Klick auf einen Chip springt zur Stelle, das ✕ entfernt die Rolle
+  an Ort und Stelle (löst nur diesen Wrapper auf, un-nested nicht).
 
 ---
 

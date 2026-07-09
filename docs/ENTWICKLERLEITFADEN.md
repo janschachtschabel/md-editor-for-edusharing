@@ -155,6 +155,7 @@ verlustfrei in Markdown (GFM) abbildbar sein**.
 | **Persistenz-Regelung** | [`server/collab.js`](../server/collab.js) | Puffer-Strategie, Änderungserkennung, Retry, Status-Broadcast |
 | **Session-Store** | [`server/sessions.js`](../server/sessions.js) | opake Tokens, TTL, Revoke |
 | **Sicherheits-Guards** | [`server/guards.js`](../server/guards.js) | Rate-Limit, WS-Origin-Check, Node-ID-Validierung |
+| **KI-Verschlagwortung** | [`server/ai-tagging.js`](../server/ai-tagging.js) | gekapseltes Server-Modul: B-API-Call (OpenAI-Passthrough), Validierung der KI-Vorschläge wie Nutzereingaben, Anwendung auf das geteilte Yjs-Dokument, Presence-Auftritt „🤖 KI-Tagger" |
 | **Host-Seite** (Referenz-Einbettung) | [`src/host.js`](../src/host.js) | zeigt die Web-Component-Nutzung + Test-API-Anbindung |
 | **Testsuiten, CI, Docker** | `test/`, `.github/`, `.gitlab-ci.yml`, `Dockerfile` | Qualitätssicherung + Deployment |
 
@@ -562,7 +563,10 @@ server/edu-sharing-api.js  REST-Client: Login, Knoten, Laden/Speichern, setPrope
 server/collab.js           Hocuspocus, Puffer-Strategie, Persistenz, Status-Broadcast
 server/guards.js           Rate-Limiter, WebSocket-Origin-Check, Node-ID-Validierung
 server/sessions.js         Server-seitiger Session-Store (opake Tokens, TTL, Ticket)
+server/ai-tagging.js       KI-Verschlagwortung (B-API-Call, Validierung, Presence; gekapselt)
 src/md-collab-editor.js    Web Component (Editor, Toolbar, Presence, Save-Bar)
+src/role-block.js          TipTap-Node für Absatzrollen (:::-Container)
+src/presence.js            Presence-Tracker (Awareness → Chips)
 src/toolbar.js             Toolbar-Definition (Symbol-Buttons + Tabellen-Aktionen)
 src/save-state.js          Save-Bar-Logik (pur, getestet)
 src/annotations.js         Semantisches Tagging — pure Logik (pur, getestet)
@@ -572,6 +576,7 @@ src/annotation-ui.js       Tag-Dialoge + Entitäten-Leiste (reines DOM)
 src/annotation-controller.js Feature-Controller (Y.Array, Validierung, Orchestrierung)
 src/extensions.js          TipTap-Extension-Set (Server + Client identisch)
 src/markdown.js            Markdown ⇄ HTML (Server + Client identisch)
+src/i18n.js                UI-Sprachen (de/en; gespeicherte Werte bleiben deutsch)
 src/host.js                Demo-Host-Seite (Referenz für die Angular-Einbettung)
 public/app-config.js       Laufzeit-Konfiguration (Backend-URL bei Cross-Origin)
 public/                    HTML, CSS, gebaute Bundles

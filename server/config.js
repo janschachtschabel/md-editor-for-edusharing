@@ -60,3 +60,28 @@ export const ALLOW_ANONYMOUS_EDIT = process.env.ALLOW_ANONYMOUS_EDIT === 'true'
  */
 export const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || '')
   .split(',').map((s) => s.trim()).filter(Boolean)
+
+// ------------------------------------------------- AI tagging (B-API) ---
+/**
+ * API key for the WLO B-API (OpenAI passthrough). Follows the WLO convention:
+ * the key lives in the OS user environment (B_API_KEY / B_API_KEY_STAGING),
+ * NOT in .env — AI_API_KEY exists as an explicit override for deployments.
+ * `|| undefined` guards the docker-compose footgun where `${VAR:-}` passes
+ * variables through as SET-but-EMPTY strings.
+ */
+export const AI_API_KEY = process.env.AI_API_KEY || process.env.B_API_KEY
+  || process.env.B_API_KEY_STAGING || null
+
+/** Chat model on the B-API OpenAI passthrough. */
+export const AI_MODEL = process.env.AI_MODEL || 'gpt-5.4-mini'
+
+/**
+ * OpenAI-compatible base URL. Default is DERIVED from the repository host:
+ * repository.<domain> → b-api.<domain>/api/v1/llm/openai (the "b-api-openai"
+ * passthrough). Override with AI_BASE_URL for other setups.
+ */
+export const AI_BASE_URL = process.env.AI_BASE_URL
+  || `${EDU_BASE.replace('://repository.', '://b-api.')}/api/v1/llm/openai`
+
+/** Timeout for a single model call (tagging a long text takes a while). */
+export const AI_TIMEOUT_MS = Number(process.env.AI_TIMEOUT_MS || 90000)

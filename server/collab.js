@@ -25,6 +25,7 @@ import {
   keywordsToAnnotations, mergeKeywords, preservedKeywords, serializeEntityKeywords,
 } from '../src/annotations.js'
 import { resolveAuthToken } from './sessions.js'
+import { aiConfigured, runAiTagging } from './ai-tagging.js'
 
 const extensions = createExtensions()
 
@@ -113,6 +114,7 @@ export function broadcastConfig(documentName, document) {
     dirty: state.dirty,
     lastSavedAt: state.lastSavedAt,
     canPersist: Boolean(resolveAuth(documentName)) && !state.contentBlocked && state.canRepoWrite,
+    aiAvailable: aiConfigured(),
   })
 }
 
@@ -317,7 +319,7 @@ export const hocuspocus = new Hocuspocus({
   },
 
   /** Commands from the editor component over the collaboration channel. */
-  async onStateless({ payload, document, documentName }) {
+  async onStateless({ payload, document, documentName, connection }) {
     let msg
     try { msg = JSON.parse(payload) } catch { return }
     if (msg.event === 'save') {
@@ -325,8 +327,17 @@ export const hocuspocus = new Hocuspocus({
       // broadcast to ALL clients (shared repo state)
       await persistDocument(documentName, document, true)
     } else if (msg.event === 'hello') {
-      // A freshly connected client asks for the save state
+      // A freshly connected client asks for the save state — includes
+      // whether AI tagging is available (key configured server-side)
       broadcastConfig(documentName, document)
+    } else if (msg.event === 'ai-tag') {
+      // AI auto-tagging (server/ai-tagging.js): only editors may trigger it —
+      // read-only connections could otherwise write via the AI as a proxy
+      if (connection?.readOnly) {
+        broadcast(document, { event: 'ai-status', phase: 'error', code: 'no-write' })
+        return
+      }
+      await runAiTagging({ document, documentName, markdown: ydocToMarkdown(document) })
     }
   },
 

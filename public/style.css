@@ -471,6 +471,58 @@ md-collab-editor.mce-root { display: flex; flex-direction: column; flex: 1; }
 .tiptap section[data-role] > :first-child { margin-top: 0; }
 .tiptap section[data-role] > :last-child { margin-bottom: 0; }
 
+/* Rollen-Leiste unter der Toolbar: alle Absatzrollen als (amberfarbene,
+   wegklickbare) Chips — Block-Pendant zur blauen Entitäten-Leiste */
+.mce-roles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .3rem;
+  align-items: center;
+  padding: .35rem .75rem;
+  border-bottom: 1px solid var(--border);
+  background: #fffdf5;
+  font-size: .74rem;
+}
+.mce-role-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: .1rem;
+  border: 1px solid #f5c86b;
+  background: #fdf1d6;
+  border-radius: 99px;
+  padding: 0 .2rem 0 0;
+  white-space: nowrap;
+}
+.mce-role-chip-label, .mce-role-chip-del {
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: inherit;
+  color: #92600a;
+  padding: .12rem .2rem .12rem .5rem;
+  border-radius: 99px;
+  text-transform: capitalize;
+}
+.mce-role-chip-del { color: var(--muted); padding: .12rem .35rem; text-transform: none; }
+.mce-role-chip-del:hover { color: #e5484d; }
+.mce-role-chip-label:focus-visible, .mce-role-chip-del:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* KI-Tagging: Button + transiente Statusanzeige (Logik liegt auf dem Server) */
+.mce-ai-btn.mce-ai-running { animation: led-blink 1s ease-in-out infinite; cursor: progress; }
+.mce-ai-status {
+  font-size: .74rem;
+  color: var(--muted);
+  align-self: center;
+  white-space: nowrap;
+  max-width: 22rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.mce-ai-status.mce-ai-error { color: #ce2c31; }
+
 /* Rollen-Auswahl in der Toolbar (zweites Tagging-System, Block-Ebene) */
 .mce-role-select {
   font-size: .8rem;

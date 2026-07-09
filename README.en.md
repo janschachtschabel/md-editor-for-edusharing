@@ -89,6 +89,22 @@ Optionally create a `.env` (template: [.env.example](.env.example)):
 | `TRUST_PROXY_HOPS` | `0` | number of trusted reverse-proxy hops (1 behind nginx/Render) |
 | `ALLOWED_ORIGINS` | – | CORS/WebSocket allowlist for cross-origin embedding (see "Hosting") |
 | `ALLOW_ANONYMOUS_EDIT` | `false` | **local development only**: allow editing without login |
+| `AI_API_KEY` | – | B-API key for AI auto-tagging (fallback: OS env `B_API_KEY`/`B_API_KEY_STAGING`); without a key the 🤖 button stays hidden |
+| `AI_MODEL` | `gpt-5.4-mini` | chat model on the B-API OpenAI passthrough |
+| `AI_BASE_URL` | derived | OpenAI-compatible base URL; derived from the repo host (`repository.X` → `b-api.X/api/v1/llm/openai`) |
+| `AI_TIMEOUT_MS` | `90000` | timeout per model call |
+
+### AI auto-tagging (🤖)
+
+With a B-API key configured, the toolbar shows an **"🤖 AI tagging"** button:
+the AI briefly joins as a visible co-writer (presence chip "🤖 KI-Tagger"),
+detects **entities** (exact quotes + type → pills/keywords) and **paragraph
+roles** (quote + role slug → `:::` blocks), applies both to the shared
+document after validation, and leaves again. AI suggestions pass the exact
+same validation as human input (hallucinated quotes, crossing spans,
+duplicates and non-catalog roles are dropped). The API key never leaves the
+server; triggering requires a write-enabled connection. Implementation is
+encapsulated in [server/ai-tagging.js](server/ai-tagging.js).
 
 ## Testing the demo (multiple users)
 
@@ -308,6 +324,7 @@ server/edu-sharing-api.js  REST client (login, nodes, load/save)
 server/collab.js           Hocuspocus, buffering strategy, read-back verification
 server/guards.js           rate limiter + WebSocket origin check
 server/sessions.js         server-side session store (opaque tokens, TTL)
+server/ai-tagging.js       AI auto-tagging (B-API, encapsulated; 🤖 button)
 src/md-collab-editor.js    web component
 src/toolbar.js             toolbar definition
 src/save-state.js          save-bar logic (pure, unit-tested)
@@ -339,7 +356,11 @@ docker run -p 3000:3000 md-collab-demo
 ```
 
 Behind HTTPS the page automatically uses `wss://`. Configuration via
-environment variables (see the table above or [docker-compose.yml](docker-compose.yml)).
+environment variables (see the table above or [docker-compose.yml](docker-compose.yml)) —
+every variable listed there (incl. `EDU_REPO_BASE_URL` for the target repository
+and `AI_API_KEY` for AI auto-tagging) is passed from `.env` / the host
+environment into the container. Treat `AI_API_KEY` like any secret: never in
+the repo or the image.
 
 ### Why not Vercel (or serverless in general)?
 

@@ -13,15 +13,43 @@ import { gfm } from 'turndown-plugin-gfm'
 // Fenced-div extension for didactic paragraph roles:  ::: role \n …blocks… \n :::
 // → <section data-role="role">…</section>. The body is parsed as normal
 // markdown (nested blocks survive), matching the RoleBlock node schema.
+//
+// A depth-COUNTING scan (not a regex) is used so role blocks can NEST
+// (sub-marking a sentence inside an already-tagged paragraph): an opener is
+// "::: slug", a closer is a bare ":::". The body is re-tokenized, which
+// re-triggers this extension for any nested opener.
+const OPEN_RE = /^::: *([a-z0-9-]+)[ \t]*$/
+const CLOSE_RE = /^::: *$/
 const roleContainer = {
   name: 'roleBlock',
   level: 'block',
-  start(src) { return src.match(/^:::/m)?.index },
+  start(src) { const i = src.search(/^:::/m); return i < 0 ? undefined : i },
   tokenizer(src) {
-    const m = /^::: *([a-z0-9-]+)[ \t]*\n([\s\S]*?)\n::: *(?=\n|$)/.exec(src)
-    if (!m) return undefined
-    const token = { type: 'roleBlock', raw: m[0], role: m[1], tokens: [] }
-    this.lexer.blockTokens(m[2], token.tokens)
+    const first = OPEN_RE.exec(src.split('\n', 1)[0])
+    if (!first) return undefined
+    const lines = src.split('\n')
+    let depth = 0
+    let end = -1
+    const body = []
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i]
+      if (OPEN_RE.test(line)) {
+        if (depth > 0) body.push(line) // nested opener belongs to the body
+        depth++
+      } else if (CLOSE_RE.test(line)) {
+        depth--
+        if (depth === 0) { end = i; break }
+        body.push(line)
+      } else if (depth > 0) {
+        body.push(line)
+      }
+    }
+    if (end < 0) return undefined // no matching closer → not a role block
+    const token = {
+      type: 'roleBlock', raw: lines.slice(0, end + 1).join('\n'),
+      role: first[1], tokens: [],
+    }
+    this.lexer.blockTokens(body.join('\n'), token.tokens)
     return token
   },
   renderer(token) {

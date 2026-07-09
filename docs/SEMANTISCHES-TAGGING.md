@@ -229,15 +229,20 @@ Hauptgrund für Standoff bei Entitäten — wird hier nicht gebraucht.
   exklusive Wahl pro Block, im Gegensatz zum Multi-Toggle der Entitäten).
   Auswahl setzt/ändert die Rolle (`setRole`), „— keine Rolle —" entfernt sie
   (`unsetRole`). Der Select spiegelt die Rolle des aktuellen Blocks; freie
-  Rollen aus externem Markdown werden dynamisch ergänzt.
+  Rollen aus externem Markdown werden dynamisch ergänzt. Zusätzlich zeigt eine
+  **Rollen-Leiste** (amberfarbene Chips, getrennt von den blauen
+  Entitäten-Chips) alle Absatzrollen des Dokuments — Klick springt zur Stelle,
+  ✕ entfernt die Rolle.
+- **Granularität:** Ganzer Absatz (Cursor + Select) **oder** Teil-Auswahl: wird
+  nur ein Satz(teil) markiert und eine Rolle gewählt, teilt der Editor den
+  Absatz automatisch (`setRole` mit `split`+`findWrapping`) — der markierte Teil
+  wird ein eigener Rollen-Block. In einem bereits getaggten Absatz **verschachtelt**
+  er sich (z. B. `Merksatz` in `These`); die Nachbarsätze behalten ihre Rolle.
+  Das ✕/`unsetRole` löst genau diesen Wrapper an Ort und Stelle auf (kein Un-Nesting).
 - **Persistenz:** keine eigene — die Rolle steht im Markdown und landet damit
   automatisch im Compendium-Property. Rollen erreichen `cclom:general_keyword`
-  **per Konstruktion nie**.
-
-**Granularität (v1):** Block-genau — ein Container umfasst einen oder mehrere
-Absätze. Ein einzelner Satz ist möglich, indem er ein eigener Absatz wird
-(erst per Enter trennen, dann Rolle setzen). Automatische Absatz-Teilung bei
-Satz-Auswahl ist eine dokumentierte Ausbaustufe.
+  **per Konstruktion nie**. Geschachtelte Rollen nutzen geschachtelte `:::`
+  (fence-zählender Tokenizer in `markdown.js`; Turndown nistet rekursiv von selbst).
 
 ---
 
@@ -270,6 +275,20 @@ editor.editor.chain().focus().unsetRole().run()
 // Auslesen: im exportierten Markdown (getMarkdown) als ::: slug erkennbar.
 ```
 
+**Eingebaute KI-Verschlagwortung (🤖):** Beide Zyklen sind zusätzlich als
+Server-Feature verdrahtet ([server/ai-tagging.js](../server/ai-tagging.js)):
+Der 🤖-Button (sichtbar, wenn serverseitig `AI_API_KEY` konfiguriert ist)
+schickt `{event:'ai-tag'}` über den Kollaborationskanal; der Server tritt als
+Presence-Teilnehmer „🤖 KI-Tagger" bei, fragt die B-API (OpenAI-Passthrough,
+Modell `AI_MODEL`) nach Entitäten + Rollen als **exakten Zitaten**, validiert
+sie mit exakt denselben Regeln wie menschliche Eingaben (Zitat muss existieren,
+kein Kreuzen, keine Duplikate, Rollen nur aus dem Katalog) und wendet sie auf
+das geteilte Y.Doc an — Pillen, Decorations und `:::`-Blöcke aktualisieren sich
+bei allen Clients über die normalen Sync-Wege. Status läuft als
+`ai-status`-Broadcast (started/done/error mit Codes, clientseitig übersetzt);
+der API-Key verlässt den Server nie; read-only-Verbindungen dürfen nicht
+auslösen.
+
 ## Modul-Landkarte
 
 | Modul | System | Verantwortung | getestet |
@@ -282,7 +301,8 @@ editor.editor.chain().focus().unsetRole().run()
 | [src/role-block.js](../src/role-block.js) | Rollen | TipTap-Node `roleBlock` (`:::`-Container) + Befehle `setRole`/`unsetRole` | `test/roundtrip.test.mjs` |
 | [src/markdown.js](../src/markdown.js) | Rollen | marked-Tokenizer + Turndown-Regel für den `:::`-Roundtrip | `test/roundtrip.test.mjs` |
 | [src/md-collab-editor.js](../src/md-collab-editor.js) | beide | Toolbar: Entitäts-Button (Dialog) + Rollen-Select; Verdrahtung | indirekt |
-| [server/collab.js](../server/collab.js) | Entitäten | Seed beim Laden, Keyword-Ableitung + Read-Back beim Speichern | `test/keyword-lifecycle.test.mjs`, `test/collab-load.test.mjs` |
+| [server/ai-tagging.js](../server/ai-tagging.js) | beide | KI-Verschlagwortung: B-API-Call, Validierung, Anwendung auf Y.Array + Y.Doc, Presence, Status-Broadcasts | `test/ai-tagging.test.mjs` |
+| [server/collab.js](../server/collab.js) | Entitäten | Seed beim Laden, Keyword-Ableitung + Read-Back beim Speichern; `ai-tag`-Kommando | `test/keyword-lifecycle.test.mjs`, `test/collab-load.test.mjs` |
 | [server/edu-sharing-api.js](../server/edu-sharing-api.js) | Entitäten | `cclom:general_keyword` lesen/schreiben (setProperty) | indirekt |
 
 Die pure Logik ist bewusst DOM-/Yjs-frei und läuft identisch in Node
@@ -296,12 +316,16 @@ und deshalb Teil des geteilten Extension-Sets für Server und Browser.
 - **Blockübergreifende Entitäten** — ein Entitäts-Span darf keine Absätze
   überspannen (Zitate mit Zeilenumbruch wären im Keyword-Roundtrip nicht
   stabil); für ganze Absätze sind die **Absatzrollen** da.
-- **Rollen block-genau (v1)** — ein Satz mitten im Absatz kann nicht ohne
-  Absatz-Teilung eine eigene Rolle bekommen; automatische Teilung an
-  Satzgrenzen ist Ausbaustufe (siehe [ABSATZROLLEN.md](ABSATZROLLEN.md)).
-- **Rollen-Label als Slug im Chip** — der Editor-Chip zeigt den Slug
-  (`definition`) capitalisiert; die vollständige Label-Übersetzung im Chip
-  (statt nur im Select) wäre eine NodeView-Ausbaustufe.
+- **Rollen-Nesting-Tiefe** — Verschachtelung funktioniert (Sub-Markierung),
+  ist aber didaktisch für 1–2 Ebenen gedacht; tiefe Schachtelung ist erlaubt,
+  aber nicht sinnvoll begrenzt.
+- **Chip-Entfernen bei Block-erstes-Kind-ist-Rolle** — das ✕ löst den Wrapper
+  an der Position des Chips auf; liegt am Blockanfang direkt ein verschachtelter
+  Rollen-Block (kein führender Absatz), kann die Auflösung den inneren treffen —
+  seltener Grenzfall.
+- **Rollen-Label als Slug im Editor-Container** — der `::before`-Chip am Block
+  zeigt den Slug (`definition`) capitalisiert; die Chip-Leiste oben zeigt das
+  volle übersetzte Label. Voll übersetzter Container-Chip wäre eine NodeView-Ausbaustufe.
 - **Rollen-Auswertung repo-weit** — Rollen sind im Markdown maschinenlesbar
   (`^::: (\w+)`); ein optionales Spiegel-Property für „welche Kompendien haben
   Aufgaben?" ist bewusst nicht Teil v1.

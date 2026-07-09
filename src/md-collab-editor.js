@@ -88,9 +88,11 @@ class MdCollabEditor extends HTMLElement {
     this.classList.add('mce-root')
     this.innerHTML = `
       <div class="mce-toolbar" part="toolbar" role="toolbar" aria-label="${t(this._lang, 'editor.toolbarLabel')}"></div>
+      <div class="mce-roles" part="roles" role="list" aria-label="${t(this._lang, 'editor.rolesLabel')}" style="display:none"></div>
       <div class="mce-entities" part="entities" role="list" aria-label="${t(this._lang, 'editor.entitiesLabel')}" style="display:none"></div>
       <div class="mce-editor" part="editor"></div>
     `
+    this._rolesEl = this.querySelector('.mce-roles')
     this._entitiesEl = this.querySelector('.mce-entities')
     // Presence display belongs to the component (the host page is not
     // visible in the target embedding): chips of connected users, toolbar right
@@ -188,6 +190,7 @@ class MdCollabEditor extends HTMLElement {
       onTransaction: () => this._updateToolbar(),
       onUpdate: () => {
         this._scheduleMarkdownEmit()
+        this._renderRoleChips() // roles live in the doc → refresh on every change
         // Track changes (own AND remote) for the save countdown — but only
         // after the initial sync, otherwise preloading would count as a change
         if (this._save.synced) {
@@ -203,6 +206,7 @@ class MdCollabEditor extends HTMLElement {
 
     this._renderToolbar()
     this._tags.renderChips()
+    this._renderRoleChips()
     this._saveTicker = setInterval(() => this._renderSaveBar(), 1000)
 
     // Warn on leave if unsaved changes would be lost (autosave off — with
@@ -221,6 +225,7 @@ class MdCollabEditor extends HTMLElement {
     clearInterval(this._saveTicker)
     clearTimeout(this._mdTimer)
     clearTimeout(this._saveTimeout)
+    clearTimeout(this._aiStatusTimer)
     this._tags?.dispose()
     window.removeEventListener('beforeunload', this._beforeUnload)
     this.editor?.destroy()
@@ -327,6 +332,26 @@ class MdCollabEditor extends HTMLElement {
     })
     bar.appendChild(this._roleSelect)
 
+    // AI auto-tagging trigger — the actual AI lives entirely on the server
+    // (server/ai-tagging.js); the button just sends the command and mirrors
+    // the broadcast status. Hidden until the server reports aiAvailable.
+    this._aiBtn = document.createElement('button')
+    this._aiBtn.type = 'button'
+    this._aiBtn.className = 'mce-ai-btn'
+    this._aiBtn.innerHTML = t(this._lang, 'ai.buttonLabel')
+    this._aiBtn.title = t(this._lang, 'ai.buttonTitle')
+    this._aiBtn.setAttribute('aria-label', t(this._lang, 'ai.buttonTitle'))
+    this._aiBtn.style.display = 'none'
+    this._aiBtn.addEventListener('click', () => {
+      this.provider.sendStateless(JSON.stringify({ event: 'ai-tag' }))
+    })
+    bar.appendChild(this._aiBtn)
+    this._aiStatusEl = document.createElement('span')
+    this._aiStatusEl.className = 'mce-ai-status'
+    this._aiStatusEl.setAttribute('role', 'status')
+    this._aiStatusEl.setAttribute('aria-live', 'polite')
+    bar.appendChild(this._aiStatusEl)
+
     bar.appendChild(this._usersEl)
     bar.appendChild(this._saveBarEl)
 
@@ -372,6 +397,13 @@ class MdCollabEditor extends HTMLElement {
       s.lastSavedAt = msg.lastSavedAt ?? s.lastSavedAt
       if (msg.dirty && !s.dirty) { s.dirty = true; s.dirtySince = Date.now(); s.lastChange = Date.now() }
       if (msg.dirty === false) s.dirty = false
+      // AI tagging button only appears when the server has a model configured
+      if (this._aiBtn && msg.aiAvailable !== undefined) {
+        this._aiBtn.style.display = msg.aiAvailable ? '' : 'none'
+      }
+    } else if (msg.event === 'ai-status') {
+      this._onAiStatus(msg)
+      return // AI status does not touch the save state
     } else if (msg.event === 'saved') {
       clearTimeout(this._saveTimeout)
       s.dirty = false
@@ -385,6 +417,32 @@ class MdCollabEditor extends HTMLElement {
     }
     this._renderSaveBar()
     this._emit('save-state-change', { ...s })
+  }
+
+  /** Mirror the server's AI-tagging status (codes → translated messages). */
+  _onAiStatus(msg) {
+    const set = (text, isError = false) => {
+      this._aiStatusEl.textContent = text
+      this._aiStatusEl.classList.toggle('mce-ai-error', isError)
+      clearTimeout(this._aiStatusTimer)
+      if (text && msg.phase !== 'started') {
+        this._aiStatusTimer = setTimeout(() => { this._aiStatusEl.textContent = '' }, 8000)
+      }
+    }
+    if (msg.phase === 'started') {
+      this._aiBtn.disabled = true
+      this._aiBtn.classList.add('mce-ai-running')
+      set(t(this._lang, 'ai.running'))
+      return
+    }
+    this._aiBtn.disabled = false
+    this._aiBtn.classList.remove('mce-ai-running')
+    if (msg.phase === 'done') {
+      set(t(this._lang, 'ai.done', { entities: msg.entities ?? 0, roles: msg.roles ?? 0 }))
+    } else if (msg.phase === 'error') {
+      const key = { busy: 'ai.errorBusy', 'no-write': 'ai.errorNoWrite', 'not-configured': 'ai.errorNotConfigured' }[msg.code]
+      set(key ? t(this._lang, key) : t(this._lang, 'ai.errorUpstream', { detail: msg.detail || msg.code || '?' }), true)
+    }
   }
 
   _renderSaveBar() {
@@ -408,6 +466,45 @@ class MdCollabEditor extends HTMLElement {
       this._save.dirty = true
       this._save.lastChange = now
       this._renderSaveBar()
+    }
+  }
+
+  /** Render the paragraph-role chips (removable) — the block-level counterpart
+   * to the entity chips bar. Reads the roles straight from the document. */
+  _renderRoleChips() {
+    if (!this._rolesEl || !this.editor) return
+    const roles = []
+    this.editor.state.doc.descendants((node, pos) => {
+      if (node.type.name === 'roleBlock') roles.push({ role: node.attrs.role, pos })
+    })
+    this._rolesEl.innerHTML = ''
+    this._rolesEl.style.display = roles.length ? '' : 'none'
+    const editable = this.editor.isEditable
+    for (const r of roles) {
+      const chip = document.createElement('span')
+      chip.className = 'mce-role-chip'
+      const label = document.createElement('button')
+      label.type = 'button'
+      label.className = 'mce-role-chip-label'
+      label.textContent = roleLabel(r.role, this._lang)
+      label.title = t(this._lang, 'roleChip.selectTitle')
+      label.addEventListener('click', () => {
+        this.editor.chain().focus().setTextSelection(r.pos + 1).scrollIntoView().run()
+      })
+      chip.appendChild(label)
+      if (editable) {
+        const del = document.createElement('button')
+        del.type = 'button'
+        del.className = 'mce-role-chip-del'
+        del.textContent = '✕'
+        del.title = t(this._lang, 'roleChip.removeTitle')
+        del.setAttribute('aria-label', t(this._lang, 'roleChip.removeAria', { label: roleLabel(r.role, this._lang) }))
+        del.addEventListener('click', () => {
+          this.editor.chain().focus().setTextSelection(r.pos + 1).unsetRole().run()
+        })
+        chip.appendChild(del)
+      }
+      this._rolesEl.appendChild(chip)
     }
   }
 

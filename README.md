@@ -89,6 +89,23 @@ Optional `.env` anlegen (Vorlage: [.env.example](.env.example)):
 | `TRUST_PROXY_HOPS` | `0` | Anzahl vertrauter Reverse-Proxy-Hops (1 hinter nginx/Render) |
 | `ALLOWED_ORIGINS` | – | CORS-/WebSocket-Allowlist für Cross-Origin-Einbettung (siehe „Hosting") |
 | `ALLOW_ANONYMOUS_EDIT` | `false` | **nur lokal**: Editieren ohne Login erlauben |
+| `AI_API_KEY` | – | B-API-Key für die KI-Verschlagwortung (Fallback: OS-Env `B_API_KEY`/`B_API_KEY_STAGING`); ohne Key bleibt der 🤖-Button verborgen |
+| `AI_MODEL` | `gpt-5.4-mini` | Chat-Modell auf dem B-API-OpenAI-Passthrough |
+| `AI_BASE_URL` | abgeleitet | OpenAI-kompatible Base-URL; Default aus dem Repo-Host abgeleitet (`repository.X` → `b-api.X/api/v1/llm/openai`) |
+| `AI_TIMEOUT_MS` | `90000` | Timeout je Modell-Aufruf |
+
+### KI-Verschlagwortung (🤖)
+
+Ist ein B-API-Key konfiguriert, erscheint in der Toolbar der Button
+**„🤖 KI-Tagging"**: Die KI tritt kurz als sichtbarer Mitschreiber bei
+(Presence-Chip „🤖 KI-Tagger"), erkennt **Entitäten** (exakte Zitate + Typ →
+Pillen/Keywords) und **Absatzrollen** (Zitat + Rollen-Slug → `:::`-Blöcke),
+trägt beides validiert ins geteilte Dokument ein und verlässt den Editor
+wieder. Alle KI-Vorschläge durchlaufen dieselbe Validierung wie menschliche
+Eingaben (halluzinierte Zitate, Kreuzungen, Duplikate und Nicht-Katalog-Rollen
+werden verworfen). Der API-Key bleibt ausschließlich auf dem Server; der
+Auslöser braucht eine Schreibverbindung. Implementierung gekapselt in
+[server/ai-tagging.js](server/ai-tagging.js).
 
 ## Demo testen (mehrere Benutzer)
 
@@ -324,6 +341,7 @@ server/edu-sharing-api.js  REST-Client (Login, Knoten, Laden/Speichern)
 server/collab.js           Hocuspocus, Puffer-Strategie, Read-Back-Verifikation
 server/guards.js           Rate-Limiter + WebSocket-Origin-Check
 server/sessions.js         Server-seitiger Session-Store (opake Tokens, TTL)
+server/ai-tagging.js       KI-Verschlagwortung (B-API, gekapselt; 🤖-Button)
 src/md-collab-editor.js    Web Component
 src/toolbar.js             Toolbar-Definition
 src/save-state.js          Save-Bar-Logik (pur, getestet)
@@ -355,7 +373,11 @@ docker run -p 3000:3000 md-collab-demo
 ```
 
 Hinter HTTPS nutzt die Seite automatisch `wss://`. Konfiguration über
-Umgebungsvariablen (siehe Tabelle oben bzw. [docker-compose.yml](docker-compose.yml)).
+Umgebungsvariablen (siehe Tabelle oben bzw. [docker-compose.yml](docker-compose.yml)) —
+alle dort gelisteten Variablen (inkl. `EDU_REPO_BASE_URL` fürs Ziel-Repository und
+`AI_API_KEY` für die KI-Verschlagwortung) werden aus der `.env` bzw. der Host-Umgebung
+in den Container durchgereicht. Den `AI_API_KEY` wie jedes Secret **nie** ins Repo
+oder Image legen.
 
 ### Warum kein Vercel (o. ä. Serverless)?
 

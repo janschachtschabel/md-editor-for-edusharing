@@ -7,11 +7,27 @@ services:
     ports:
       - "${PORT:-3000}:3000"
     environment:
+      # Repository (the edu-sharing instance this editor reads/writes)
       EDU_REPO_BASE_URL: ${EDU_REPO_BASE_URL:-https://repository.staging.openeduhub.net}
       EDU_USER: ${EDU_USER:-}
       EDU_PASS: ${EDU_PASS:-}
+      EDU_TIMEOUT_MS: ${EDU_TIMEOUT_MS:-15000}
+      # Save buffering
       SAVE_DEBOUNCE_MS: ${SAVE_DEBOUNCE_MS:-15000}
       SAVE_MAX_DEBOUNCE_MS: ${SAVE_MAX_DEBOUNCE_MS:-90000}
+      # Embedding / proxy / limits
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-}
       TRUST_PROXY_HOPS: ${TRUST_PROXY_HOPS:-0}
+      LOGIN_RATE_MAX: ${LOGIN_RATE_MAX:-10}
+      LOGIN_RATE_WINDOW_MS: ${LOGIN_RATE_WINDOW_MS:-300000}
+      SESSION_TTL_MS: ${SESSION_TTL_MS:-28800000}
+      # AI auto-tagging (optional; without a key the 🤖 button stays hidden).
+      # NOTE: ${VAR:-} passes variables as set-but-EMPTY into the container —
+      # the server config treats empty as unset (process.env.X || fallback),
+      # so defaults still apply. Base URL is derived from EDU_REPO_BASE_URL
+      # when AI_BASE_URL is left empty.
+      AI_API_KEY: ${AI_API_KEY:-}
+      AI_MODEL: ${AI_MODEL:-gpt-5.4-mini}
+      AI_BASE_URL: ${AI_BASE_URL:-}
+      AI_TIMEOUT_MS: ${AI_TIMEOUT_MS:-90000}
     restart: unless-stopped
