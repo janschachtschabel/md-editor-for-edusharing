@@ -17,6 +17,11 @@ const SAMPLE_KEYS = [
   'saveBar.saving', 'saveBar.saved', 'tag.typeLabel', 'tag.typeRequiredError',
   'manage.title', 'chips.orphanTitle', 'controller.crossing', 'host.loginChecking',
   'host.pendingAutosave', 'app.title', 'open.hint', 'editorEmpty.text',
+  // Visible toolbar button LABELS (not just tooltips) — regression guard for
+  // the "⊞ Tabelle shown in English UI" bug: text-bearing labels must be keys
+  'toolbar.tableLabel', 'toolbar.bulletListLabel', 'toolbar.rowAddLabel',
+  // Save-target label is composed client-side (server strings stay German)
+  'host.targetCompendiumLabel', 'host.targetDescriptionLabel',
 ]
 
 const cases = []
@@ -40,6 +45,10 @@ cases.push(['unknown language falls back to DEFAULT_LANG', () => {
 
 cases.push(['placeholder substitution replaces {vars}', () => {
   return t('en', 'saveBar.pendingCountdown', { secs: 7 }) === 'saving in 7s'
+}])
+
+cases.push(['English table label is actually English (not "Tabelle")', () => {
+  return t('en', 'toolbar.tableLabel').includes('Table') && !t('en', 'toolbar.tableLabel').includes('Tabelle')
 }])
 
 cases.push(['every DE key has an EN counterpart', () => missingInEn.length === 0, missingInEn])

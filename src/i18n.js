@@ -73,6 +73,16 @@ const MESSAGES = {
     'toolbar.redo': 'Wiederholen',
     'toolbar.linkPrompt': 'Link-URL (leer = entfernen):',
     'toolbar.imagePrompt': 'Bild-URL:',
+    // Visible button labels that contain words (pure glyphs like "B", "↶"
+    // stay hardcoded in toolbar.js)
+    'toolbar.bulletListLabel': '• Liste',
+    'toolbar.orderedListLabel': '1. Liste',
+    'toolbar.taskListLabel': '☑ Tasks',
+    'toolbar.tableLabel': '⊞ Tabelle',
+    'toolbar.rowAddLabel': '+Zeile',
+    'toolbar.colAddLabel': '+Spalte',
+    'toolbar.rowDelLabel': '−Zeile',
+    'toolbar.colDelLabel': '−Spalte',
 
     // <md-collab-editor> shell (src/md-collab-editor.js)
     'editor.toolbarLabel': 'Textformatierung',
@@ -148,6 +158,10 @@ const MESSAGES = {
     'host.anonymousName': 'Anonym',
     'host.ticketUserName': 'Ticket-Nutzer',
     'host.shareLabel': 'Link teilen für gemeinsames Bearbeiten:',
+    // Save-target label, composed CLIENT-side from info.mode + info.type —
+    // the server's targetLabel string is German-only and stays unused here
+    'host.targetCompendiumLabel': 'Kompendium-Property (ccm:oeh_collection_compendium_text) auf {type}',
+    'host.targetDescriptionLabel': 'Beschreibung (cm:description / cclom:general_description)',
 
     // Static host page markup (public/index.html, applied via data-i18n*)
     'app.title': 'edu-sharing · Kollaborativer Markdown-Editor (Demo)',
@@ -206,6 +220,14 @@ const MESSAGES = {
     'toolbar.redo': 'Redo',
     'toolbar.linkPrompt': 'Link URL (empty = remove):',
     'toolbar.imagePrompt': 'Image URL:',
+    'toolbar.bulletListLabel': '• List',
+    'toolbar.orderedListLabel': '1. List',
+    'toolbar.taskListLabel': '☑ Tasks',
+    'toolbar.tableLabel': '⊞ Table',
+    'toolbar.rowAddLabel': '+Row',
+    'toolbar.colAddLabel': '+Column',
+    'toolbar.rowDelLabel': '−Row',
+    'toolbar.colDelLabel': '−Column',
 
     'editor.toolbarLabel': 'Text formatting',
     'editor.entitiesLabel': 'Tagged entities',
@@ -276,6 +298,8 @@ const MESSAGES = {
     'host.anonymousName': 'Anonymous',
     'host.ticketUserName': 'Ticket user',
     'host.shareLabel': 'Share this link to edit together:',
+    'host.targetCompendiumLabel': 'Compendium property (ccm:oeh_collection_compendium_text) on {type}',
+    'host.targetDescriptionLabel': 'Description (cm:description / cclom:general_description)',
 
     'app.title': 'edu-sharing · Collaborative Markdown Editor (Demo)',
     'brand.h1': 'Compendium Editor',

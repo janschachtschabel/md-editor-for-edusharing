@@ -234,7 +234,14 @@ function renderStatus() {
     const renderLink = $('#render-link')
     renderLink.href = info.renderUrl
     renderLink.hidden = false
-    $('#doc-target').textContent = info.targetLabel ? t(lang, 'host.saveTarget', { label: info.targetLabel }) : ''
+    // Compose the save-target label client-side (the server's targetLabel
+    // string is German-only) — info.mode + info.type carry the raw facts
+    const targetLabel = info.mode === 'description'
+      ? t(lang, 'host.targetDescriptionLabel')
+      : info.mode === 'compendium'
+        ? t(lang, 'host.targetCompendiumLabel', { type: info.type })
+        : ''
+    $('#doc-target').textContent = targetLabel ? t(lang, 'host.saveTarget', { label: targetLabel }) : ''
   }
 
   const s = liveSave

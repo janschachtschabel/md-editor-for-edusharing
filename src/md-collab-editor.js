@@ -304,7 +304,7 @@ class MdCollabEditor extends HTMLElement {
       }
       const btn = document.createElement('button')
       btn.type = 'button'
-      btn.innerHTML = tool.label
+      btn.innerHTML = tool.labelKey ? t(this._lang, tool.labelKey) : tool.label
       const title = t(this._lang, tool.titleKey)
       btn.title = title
       btn.setAttribute('aria-label', title)

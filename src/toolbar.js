@@ -4,9 +4,10 @@
  * shows the button only while the selection is inside a table.
  * Every action maps losslessly to markdown (GFM).
  *
- * `label` is a glyph/abbreviation, language-independent by design; `titleKey`
- * resolves to the translated tooltip/aria-label via i18n's `tt()`, using the
- * language <md-collab-editor> activated before rendering the toolbar.
+ * `label` is for pure glyphs/abbreviations (B, H1, ↶ — language-independent);
+ * buttons whose visible text contains WORDS carry `labelKey` instead and are
+ * translated like `titleKey` (tooltip/aria-label) — both resolve via i18n
+ * with the language <md-collab-editor> activated before rendering.
  */
 import { tt } from './i18n.js'
 
@@ -22,9 +23,9 @@ export const TOOLBAR = [
   { cmd: 'h2', label: 'H2', titleKey: 'toolbar.h2', run: (e) => e.chain().focus().toggleHeading({ level: 2 }).run(), active: (e) => e.isActive('heading', { level: 2 }) },
   { cmd: 'h3', label: 'H3', titleKey: 'toolbar.h3', run: (e) => e.chain().focus().toggleHeading({ level: 3 }).run(), active: (e) => e.isActive('heading', { level: 3 }) },
   { sep: true },
-  { cmd: 'bulletList', label: '• Liste', titleKey: 'toolbar.bulletList', run: (e) => e.chain().focus().toggleBulletList().run(), active: (e) => e.isActive('bulletList') },
-  { cmd: 'orderedList', label: '1. Liste', titleKey: 'toolbar.orderedList', run: (e) => e.chain().focus().toggleOrderedList().run(), active: (e) => e.isActive('orderedList') },
-  { cmd: 'taskList', label: '☑ Tasks', titleKey: 'toolbar.taskList', run: (e) => e.chain().focus().toggleTaskList().run(), active: (e) => e.isActive('taskList') },
+  { cmd: 'bulletList', labelKey: 'toolbar.bulletListLabel', titleKey: 'toolbar.bulletList', run: (e) => e.chain().focus().toggleBulletList().run(), active: (e) => e.isActive('bulletList') },
+  { cmd: 'orderedList', labelKey: 'toolbar.orderedListLabel', titleKey: 'toolbar.orderedList', run: (e) => e.chain().focus().toggleOrderedList().run(), active: (e) => e.isActive('orderedList') },
+  { cmd: 'taskList', labelKey: 'toolbar.taskListLabel', titleKey: 'toolbar.taskList', run: (e) => e.chain().focus().toggleTaskList().run(), active: (e) => e.isActive('taskList') },
   { cmd: 'blockquote', label: '❝', titleKey: 'toolbar.blockquote', run: (e) => e.chain().focus().toggleBlockquote().run(), active: (e) => e.isActive('blockquote') },
   { cmd: 'codeBlock', label: '{ }', titleKey: 'toolbar.codeBlock', run: (e) => e.chain().focus().toggleCodeBlock().run(), active: (e) => e.isActive('codeBlock') },
   { cmd: 'hr', label: '―', titleKey: 'toolbar.hr', run: (e) => e.chain().focus().setHorizontalRule().run() },
@@ -41,11 +42,11 @@ export const TOOLBAR = [
     if (url) e.chain().focus().setImage({ src: url }).run()
   } },
   { sep: true },
-  { cmd: 'table', label: '⊞ Tabelle', titleKey: 'toolbar.table', run: (e) => e.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run() },
-  { cmd: 'rowAdd', label: '+Zeile', titleKey: 'toolbar.rowAdd', table: true, run: (e) => e.chain().focus().addRowAfter().run() },
-  { cmd: 'colAdd', label: '+Spalte', titleKey: 'toolbar.colAdd', table: true, run: (e) => e.chain().focus().addColumnAfter().run() },
-  { cmd: 'rowDel', label: '−Zeile', titleKey: 'toolbar.rowDel', table: true, run: (e) => e.chain().focus().deleteRow().run() },
-  { cmd: 'colDel', label: '−Spalte', titleKey: 'toolbar.colDel', table: true, run: (e) => e.chain().focus().deleteColumn().run() },
+  { cmd: 'table', labelKey: 'toolbar.tableLabel', titleKey: 'toolbar.table', run: (e) => e.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run() },
+  { cmd: 'rowAdd', labelKey: 'toolbar.rowAddLabel', titleKey: 'toolbar.rowAdd', table: true, run: (e) => e.chain().focus().addRowAfter().run() },
+  { cmd: 'colAdd', labelKey: 'toolbar.colAddLabel', titleKey: 'toolbar.colAdd', table: true, run: (e) => e.chain().focus().addColumnAfter().run() },
+  { cmd: 'rowDel', labelKey: 'toolbar.rowDelLabel', titleKey: 'toolbar.rowDel', table: true, run: (e) => e.chain().focus().deleteRow().run() },
+  { cmd: 'colDel', labelKey: 'toolbar.colDelLabel', titleKey: 'toolbar.colDel', table: true, run: (e) => e.chain().focus().deleteColumn().run() },
   { cmd: 'tableDel', label: '⊞✕', titleKey: 'toolbar.tableDel', table: true, run: (e) => e.chain().focus().deleteTable().run() },
   { sep: true },
   { cmd: 'undo', label: '↶', titleKey: 'toolbar.undo', run: (e) => e.chain().focus().undo().run() },
