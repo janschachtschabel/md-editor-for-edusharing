@@ -22,7 +22,7 @@ import {
   getNodeInfo, loadMarkdown, saveKeywords, saveMarkdown, parseDocumentName,
 } from './edu-sharing-api.js'
 import {
-  keywordsToAnnotations, mergeKeywords, preservedKeywords, serializeEntityKeywords,
+  findQuoteRange, keywordsToAnnotations, mergeKeywords, preservedKeywords, serializeEntityKeywords,
 } from '../src/annotations.js'
 import { resolveAuthToken } from './sessions.js'
 import { aiConfigured, runAiTagging } from './ai-tagging.js'
@@ -76,6 +76,30 @@ export function resolveAuth(documentName) {
   return docAuth.get(documentName) ?? ENV_AUTH ?? null
 }
 
+/**
+ * Live WebSocket connections per session token, so that a logout can
+ * terminate the session EVERYWHERE — without this, a second tab/device using
+ * the same session kept its connection (presence + write access) until the
+ * tab was closed, even though the token had been revoked.
+ */
+const sessionConnections = new Map() // token → Map<socketId, connection>
+
+/** Close every open collaboration connection of a (just revoked) session. */
+export function closeSessionConnections(token) {
+  const conns = sessionConnections.get(token)
+  if (!conns) return 0
+  sessionConnections.delete(token)
+  let closed = 0
+  for (const connection of conns.values()) {
+    try {
+      connection.close({ code: 4403, reason: 'Session beendet (Logout)' })
+      closed++
+    } catch { /* already gone */ }
+  }
+  if (closed) console.log(`[auth] logout closed ${closed} open connection(s) of the session`)
+  return closed
+}
+
 // --------------------------------------------------- Markdown ⇄ Yjs doc ---
 function markdownToYdoc(markdown) {
   const html = markdownToHtml(markdown)
@@ -113,6 +137,9 @@ export function broadcastConfig(documentName, document) {
     autosave: state.autosave,
     dirty: state.dirty,
     lastSavedAt: state.lastSavedAt,
+    // Plain editorial keywords — shown LOCKED in the chips bar so editors see
+    // they are read and written back unchanged (never editable here)
+    plainKeywords: state.preservedKeywords || [],
     canPersist: Boolean(resolveAuth(documentName)) && !state.contentBlocked && state.canRepoWrite,
     aiAvailable: aiConfigured(),
   })
@@ -150,10 +177,15 @@ export async function persistDocument(documentName, document, manual = false) {
     return
   }
   // Entity annotations (shared Y.Array) → general keywords "Name (Typ)".
-  // Pre-existing, non-entity-managed keywords (state.preservedKeywords, fixed
-  // at load) are written back unchanged — only editor entities are (re)built
-  // from the current annotations (audit F-T1).
-  const entityKeywords = serializeEntityKeywords(document.getArray('annotations').toArray())
+  // Entities are SEMANTIC STATEMENTS about the node's texts: only annotations
+  // whose quote is anchored in the textbase (this document's text OR the
+  // node's other field — both share one keyword list) are written; stale
+  // ones would falsify the statement and are dropped (and pruned below).
+  // Plain editorial keywords (state.preservedKeywords) pass through unchanged.
+  const textbase = `${markdown}\n${state.otherText || ''}`
+  const anchored = document.getArray('annotations').toArray()
+    .filter((a) => findQuoteRange(textbase, a.quote))
+  const entityKeywords = serializeEntityKeywords(anchored)
   const keywords = mergeKeywords(state.preservedKeywords, entityKeywords)
   const markdownChanged = markdown !== state.lastSavedMarkdown
   // Unordered compare: merging moves entity keywords to the end, so the list
@@ -182,6 +214,26 @@ export async function persistDocument(documentName, document, manual = false) {
       console.error(`[save] VERIFICATION FAILED ${documentName} → ${state.writeTarget} [${state.mode}] (markdown ${markdownOk ? 'ok' : 'FAILED'}, keywords ${keywordsOk ? 'ok' : 'FAILED'})`)
       broadcast(document, { event: 'save-error', message: state.lastError })
       return // deterministic failure — no retry
+    }
+    // Refresh the other field's text from the read-back (it may have been
+    // edited in ITS collab session meanwhile), then prune annotations that
+    // are anchored NOWHERE — their keyword was just dropped, a lingering
+    // pill would falsify the semantic statement. Re-checked against the
+    // LIVE doc text so a quote restored (undo) during the save keeps its pill.
+    state.otherText = (state.mode === 'description' ? verify.compendium : verify.description) || ''
+    const liveText = `${ydocToMarkdown(document)}\n${state.otherText}`
+    const arr = document.getArray('annotations')
+    const stale = arr.toArray()
+      .map((a, i) => ({ i, anchored: Boolean(findQuoteRange(liveText, a.quote)) }))
+      .filter((x) => !x.anchored)
+    if (stale.length) {
+      document.transact(() => {
+        for (let k = stale.length - 1; k >= 0; k--) arr.delete(stale[k].i, 1)
+      })
+      // Refresh the reconnect snapshot — it was taken BEFORE the prune and
+      // would otherwise resurrect the pruned pills on the next load.
+      rememberSnapshot(documentName, document, markdown)
+      console.log(`[save] ${documentName}: pruned ${stale.length} unanchored entity pill(s)`)
     }
     state.lastSavedMarkdown = markdown
     state.lastSavedKeywords = keywords
@@ -219,11 +271,17 @@ export const hocuspocus = new Hocuspocus({
     const { nodeId, field } = parseDocumentName(documentName)
     const { authHeader, session } = resolveAuthToken(token)
     if (!authHeader) {
-      // Unknown/expired session: allow the connection, but read-only
-      connectionConfig.readOnly = true
-      return {}
+      // A PRESENTED but unknown/expired/revoked token is rejected outright.
+      // (Previously this silently downgraded to read-only — a logged-out
+      // tab could then auto-reconnect and linger in the presence forever.
+      // Anonymous viewing stays available via token 'anonymous' above.)
+      throw new Error('Ungültige oder abgelaufene Sitzung')
     }
     const who = { authorityName: session?.authorityName || 'api-client' }
+    // Track the connection under its session token (via context, see the
+    // connected/onDisconnect hooks) so a logout can close it everywhere.
+    // Basic passthrough (no server-side session) is not trackable/revocable.
+    const sessionToken = session ? token : undefined
 
     // Determine write permission on this node. Only write-capable users may
     // edit the shared Yjs document AND become the repository write session —
@@ -238,7 +296,7 @@ export const hocuspocus = new Hocuspocus({
     if (!canWrite) {
       connectionConfig.readOnly = true
       console.log(`[auth] ${who.authorityName} logged in for ${documentName} (read-only, no write access)`)
-      return { user: who }
+      return { user: who, sessionToken }
     }
 
     docAuth.set(documentName, authHeader)
@@ -247,7 +305,28 @@ export const hocuspocus = new Hocuspocus({
     const doc = hocuspocus.documents.get(documentName)
     if (doc) broadcastConfig(documentName, doc)
     console.log(`[auth] ${who.authorityName} logged in for ${documentName} (write access)`)
-    return { authHeader, user: who }
+    return { authHeader, user: who, sessionToken }
+  },
+
+  /** Register the live connection under its session token (logout kill list). */
+  async connected({ connection, context, socketId }) {
+    const token = context?.sessionToken
+    if (!token) return
+    let conns = sessionConnections.get(token)
+    if (!conns) {
+      conns = new Map()
+      sessionConnections.set(token, conns)
+    }
+    conns.set(socketId, connection)
+  },
+
+  /** Unregister on normal disconnect so the registry cannot grow stale. */
+  async onDisconnect({ context, socketId }) {
+    const token = context?.sessionToken
+    const conns = token ? sessionConnections.get(token) : undefined
+    if (!conns) return
+    conns.delete(socketId)
+    if (!conns.size) sessionConnections.delete(token)
   },
 
   async onLoadDocument({ documentName, document }) {
@@ -270,7 +349,12 @@ export const hocuspocus = new Hocuspocus({
       writeTarget: info.originalId || nodeId,
       lastSavedMarkdown: markdown, // baseline for change detection
       lastSavedKeywords: info.keywords || [], // full baseline (change detection)
-      preservedKeywords: preservedKeywords(info.keywords || [], consumed), // non-entity keywords, fixed for the session
+      preservedKeywords: preservedKeywords(info.keywords || [], consumed), // plain (editorial) keywords, fixed for the session
+      // Text of the node's OTHER field (compendium ↔ description): entity
+      // keywords are statements about the node's texts, and both fields share
+      // ONE keyword list — anchoring is therefore checked against BOTH texts
+      // on save. Refreshed from every read-back.
+      otherText: (info.mode === 'description' ? info.compendium : info.description) || '',
       lastSavedAt: null,
       lastChangedAt: null,
       lastError: null,

@@ -24,7 +24,7 @@ import {
   buildDocumentName, checkWriteAccess, getNodeInfo, normalizeField, validateLogin,
 } from './server/edu-sharing-api.js'
 import {
-  broadcastConfig, docState, hocuspocus, persistDocument,
+  broadcastConfig, closeSessionConnections, docState, hocuspocus, persistDocument,
 } from './server/collab.js'
 import {
   createRateLimiter, isBasicAuthPassthrough, isOriginAllowed, isValidNodeId,
@@ -137,10 +137,17 @@ app.post('/api/login', async (req, res) => {
   }
 })
 
-/** Logout: revoke the server-side session behind the presented token. */
+/**
+ * Logout: revoke the server-side session AND close every open collaboration
+ * connection that authenticated with it — otherwise a second tab/device on
+ * the same session would keep its presence + write access until closed
+ * (and, with the token revoked FIRST, any reconnect attempt is rejected).
+ */
 app.post('/api/logout', (req, res) => {
   const value = req.headers.authorization || ''
-  sessionStore.revoke(value.startsWith('Bearer ') ? value.slice(7) : value)
+  const token = value.startsWith('Bearer ') ? value.slice(7) : value
+  sessionStore.revoke(token)
+  closeSessionConnections(token)
   res.sendStatus(204)
 })
 

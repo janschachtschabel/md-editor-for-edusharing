@@ -138,11 +138,13 @@ export function openManageDialog(root, coords, { annotations, canDelete, onDelet
  * Render the entity chips bar: one chip per annotation ("Quote (Typ)").
  * Orphaned annotations (quote no longer in the text) are shown muted.
  * With ≥2 chips and edit rights, a trailing "alle ✕" button clears them all
- * (onClearAll — the caller asks for confirmation).
+ * (onClearAll — the caller asks for confirmation). `locked` lists the node's
+ * PLAIN editorial keywords: rendered as display-only 🔒-chips so editors see
+ * they are read and written back unchanged (never editable here).
  */
-export function renderEntityChips(container, resolved, { canEdit, onSelect, onDelete, onClearAll, lang = 'de' }) {
+export function renderEntityChips(container, resolved, { canEdit, onSelect, onDelete, onClearAll, locked = [], lang = 'de' }) {
   container.innerHTML = ''
-  container.style.display = resolved.length ? '' : 'none'
+  container.style.display = (resolved.length || locked.length) ? '' : 'none'
   for (const a of resolved) {
     const displayType = typeLabel(a.type, lang)
     const chip = document.createElement('span')
@@ -179,6 +181,22 @@ export function renderEntityChips(container, resolved, { canEdit, onSelect, onDe
     clear.setAttribute('aria-label', t(lang, 'chips.clearAllTitle'))
     clear.addEventListener('click', () => onClearAll(resolved.length))
     container.appendChild(clear)
+  }
+  if (locked.length) {
+    // Editorial keywords get their own labelled group so they are instantly
+    // distinguishable from entity pills (and from grey orphans)
+    const caption = document.createElement('span')
+    caption.className = 'mce-chips-caption'
+    caption.textContent = t(lang, 'chips.lockedGroupLabel')
+    caption.title = t(lang, 'chips.lockedTitle')
+    container.appendChild(caption)
+    for (const kw of locked) {
+      const chip = document.createElement('span')
+      chip.className = 'mce-entity-chip mce-entity-locked'
+      chip.textContent = `🔒 ${kw}`
+      chip.title = t(lang, 'chips.lockedTitle')
+      container.appendChild(chip)
+    }
   }
 }
 

@@ -85,4 +85,41 @@ check('no duplicated entity pills after unload/reload',
 check('reloaded server doc equals the first load (same Yjs state)',
   serverDoc2.getXmlFragment('default').toString() === serverDoc1.getXmlFragment('default').toString())
 
+// --- logout terminates EVERY connection of the session -------------------------
+// Reported: after logging out, the user's presence lingered — a second tab
+// using the same session token stayed connected (and could reconnect, since
+// invalid tokens were silently downgraded to read-only instead of rejected).
+{
+  const { closeSessionConnections } = await import('../server/collab.js')
+
+  // (a) presenting an INVALID (non-anonymous) token must be rejected outright
+  let rejected = false
+  try {
+    await cfg.onAuthenticate({ token: 'revoked-or-expired', documentName, connectionConfig: {} })
+  } catch { rejected = true }
+  check('invalid session token is rejected (no silent read-only downgrade)', rejected)
+
+  // (b) anonymous connections keep working (read-only viewing stays possible)
+  const anonCfg = {}
+  await cfg.onAuthenticate({ token: 'anonymous', documentName, connectionConfig: anonCfg })
+  check('anonymous connection still allowed', true)
+
+  // (c) revoking a session closes ALL its registered WS connections
+  const closed = []
+  const fakeConn = (id) => ({ close: (ev) => closed.push({ id, ...ev }) })
+  await cfg.connected({ context: { sessionToken: 'tok-1' }, socketId: 's1', connection: fakeConn('s1') })
+  await cfg.connected({ context: { sessionToken: 'tok-1' }, socketId: 's2', connection: fakeConn('s2') })
+  closeSessionConnections('tok-1')
+  check('all connections of the session are closed on logout',
+    closed.length === 2 && closed.every((c) => c.code === 4403), closed)
+  closeSessionConnections('tok-1')
+  check('registry is cleared (second call closes nothing)', closed.length === 2)
+
+  // (d) a normal disconnect unregisters the connection first
+  await cfg.connected({ context: { sessionToken: 'tok-2' }, socketId: 's3', connection: fakeConn('s3') })
+  await cfg.onDisconnect({ context: { sessionToken: 'tok-2' }, socketId: 's3' })
+  closeSessionConnections('tok-2')
+  check('disconnected connections are not closed again', closed.length === 2)
+}
+
 process.exit(fail ? 1 : 0)

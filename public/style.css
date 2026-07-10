@@ -571,6 +571,24 @@ md-collab-editor.mce-root { display: flex; flex-direction: column; flex: 1; }
   white-space: nowrap;
 }
 .mce-entity-chip.mce-entity-orphan { border-color: var(--border); background: #f3f4f6; opacity: .65; }
+/* Redaktionelle (plain) Schlagwörter: eigene Farbfamilie (Violett) zur klaren
+   Abgrenzung — Blau = Entität, Amber = Rolle, Grau = verwaist */
+.mce-entity-chip.mce-entity-locked {
+  border-color: #ddd6fe;
+  background: #f5f3ff;
+  color: #6d28d9;
+  padding: .12rem .5rem;
+  cursor: default;
+}
+.mce-chips-caption {
+  color: #6d28d9;
+  font-weight: 700;
+  font-size: .7rem;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  margin-left: .5rem;
+  cursor: default;
+}
 .mce-entity-label, .mce-entity-del {
   border: none;
   background: transparent;

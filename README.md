@@ -238,17 +238,19 @@ Keyword-Roundtrip) steht in
   verschachtelt und deckungsgleich erlaubt, **kreuzend wird abgelehnt**.
 - **Persistenz:** Entitäten werden beim Speichern als General Keywords in der
   Form **`Weimar (Stadt)`** geschrieben (`cclom:general_keyword`, via
-  setProperty). **Editor-verwaltet ist jedes Keyword im Muster `Name (Typ)`**:
-  Steht das Zitat wörtlich im Text, erscheint es als normale Pille; steht es
-  *nicht* (mehr) im Text — z. B. nach Textänderungen, bei Tags aus dem jeweils
-  anderen Feld (Kompendium und Beschreibung teilen sich **ein** Keyword-Feld)
-  oder bei redaktionellen Disambiguierungen wie `Merkur (Planet)` — erscheint
-  es als **verwaiste (graue) Pille**. Verwaiste Pillen bleiben beim Speichern
-  als Keyword erhalten, solange man sie nicht löscht — es geht nichts still
-  verloren, aber alles ist sichtbar und **löschbar** (nichts „klebt" mehr
-  unlöschbar am Knoten). Schlichte Schlagwörter ohne Muster bleiben grundsätzlich
-  unangetastet. Keywords werden — wie das Markdown — per Read-Back verifiziert
-  und ohne Duplikate geschrieben.
+  setProperty). **`Name (Typ)`-Keywords sind semantische Aussagen über die
+  Texte des Knotens** — beim Speichern werden nur Entitäten geschrieben, deren
+  Zitat in der **Textbasis** verankert ist (Text dieses Dokuments **oder** das
+  jeweils andere Feld: Kompendium und Beschreibung teilen sich **ein**
+  Keyword-Feld). Wird der Wortlaut aus dem Text gelöscht, wird die Pille grau
+  (verwaist) und beim nächsten Speichern **automatisch entfernt** — samt
+  Keyword; ein veraltetes Tag würde die semantische Aussage verfälschen.
+  Rückgängig (↶) *vor* dem Speichern stellt die Verankerung wieder her.
+  **Schlichte Schlagwörter ohne Muster sind redaktionell**: Sie werden mit
+  eingelesen, in der Leiste **gesperrt angezeigt** — als eigene, farblich
+  abgesetzte Gruppe (violett, 🔒, Label „Redaktion:", nicht änderbar) — und
+  byte-genau unverändert zurückgeschrieben. Keywords werden — wie das
+  Markdown — per Read-Back verifiziert und ohne Duplikate geschrieben.
 - **KI-Anbindung:** `addAnnotation({quote, type})` nimmt KI-Ausgaben im
   Zitat-plus-Typ-Format entgegen (nicht auffindbare Zitate werden mit
   Fehlermeldung abgelehnt — eingebaute Halluzinations-Prüfung);
@@ -439,8 +441,11 @@ beides nicht nötig.
 
 - Yjs-Dokumente leben im RAM; Quelle der Wahrheit ist das Repo. Für Produktion:
   `@hocuspocus/extension-database`.
-- Der Browser hält nur ein opakes, widerrufbares Session-Token (8 h gleitend,
-  Logout revoked serverseitig); Credentials/Tickets bleiben im Server-RAM.
+- Der Browser hält nur ein opakes, widerrufbares Session-Token (8 h gleitend);
+  Credentials/Tickets bleiben im Server-RAM. Logout widerruft die Session
+  **und schließt alle offenen Kollaborations-Verbindungen** dieser Session
+  (auch zweite Tabs/Geräte verlieren Presence + Schreibrecht; Reconnects mit
+  dem widerrufenen Token werden abgelehnt).
 - **Ticket-Login für die Einbettung:** `POST /api/login {ticket}` tauscht ein
   edu-sharing-Ticket gegen eine Session (`EDU-TICKET`-Header); die Host-Seite
   akzeptiert dafür `?ticket=…` in der URL und entfernt es sofort daraus.

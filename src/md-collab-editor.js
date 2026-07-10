@@ -159,6 +159,7 @@ class MdCollabEditor extends HTMLElement {
       annotations: this.provider.document.getArray('annotations'),
       getEditor: () => this.editor,
       getLang: () => this._lang,
+      getLocked: () => this._plainKeywords || [],
       onChange: () => this._onAnnotationsChanged(),
     })
 
@@ -400,6 +401,11 @@ class MdCollabEditor extends HTMLElement {
       // AI tagging button only appears when the server has a model configured
       if (this._aiBtn && msg.aiAvailable !== undefined) {
         this._aiBtn.style.display = msg.aiAvailable ? '' : 'none'
+      }
+      // Plain editorial keywords → locked chips in the entities bar
+      if (msg.plainKeywords !== undefined) {
+        this._plainKeywords = msg.plainKeywords
+        this._tags.renderChips()
       }
     } else if (msg.event === 'ai-status') {
       this._onAiStatus(msg)

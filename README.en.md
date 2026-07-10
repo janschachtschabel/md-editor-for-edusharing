@@ -241,14 +241,16 @@ offsets are always derived by deterministic string search ("quotes are for
 the AI, offsets are for the code"). Nested and identical spans are allowed,
 crossing spans are rejected. On save, entities are written as general
 keywords in the form **`Weimar (Stadt)`** (read-back verified, no duplicates).
-**Every `Name (Typ)` keyword is editor-managed:** if its quote occurs verbatim
-in the text it becomes a regular pill; if not — after text edits, for tags made
-in the node's *other* field (compendium and description share ONE keyword
-list), or for editorial disambiguations like `Merkur (Planet)` — it becomes an
-**orphan (grey) pill**. Orphan pills are re-saved as keywords until explicitly
-deleted: nothing is lost silently, but everything is visible and deletable
-(no keyword can stick to the node beyond the editor's reach). Plain keywords
-without the pattern are never touched. The chips bars offer an **"all ✕"**
+**`Name (Typ)` keywords are semantic statements about the node's texts:** on
+save, only entities whose quote is anchored in the textbase (this document's
+text OR the node's other field — compendium and description share ONE keyword
+list) are written. If the wording is deleted from the text, the pill turns
+grey (orphan) and is **removed automatically on the next save** — keyword
+included; a stale tag would falsify the semantic statement. Undo (↶) *before*
+saving restores the anchor. **Plain keywords without the pattern are
+editorial**: they are read in and shown **locked** in the chips bar as their
+own visually distinct group (violet, 🔒, "Editorial:" label, not editable),
+then written back byte-exact. The chips bars offer an **"all ✕"**
 button (with confirmation) to clear all entity tags or all paragraph roles at
 once.
 
@@ -422,8 +424,10 @@ container) neither is needed.
 
 - Yjs documents live in RAM; the repository is the source of truth. For
   production add `@hocuspocus/extension-database`.
-- The browser only holds an opaque, revocable session token (8 h sliding TTL,
-  logout revokes server-side); credentials/tickets stay in server memory.
+- The browser only holds an opaque, revocable session token (8 h sliding TTL);
+  credentials/tickets stay in server memory. Logout revokes the session AND
+  closes every open collaboration connection using it (other tabs/devices
+  lose presence + write access; reconnects with the revoked token are rejected).
 - **Ticket login for embedding:** `POST /api/login {ticket}` exchanges an
   edu-sharing ticket for a session (`EDU-TICKET` header); the host page
   accepts `?ticket=…` in the URL and strips it immediately. The ticket path is

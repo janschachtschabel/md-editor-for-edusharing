@@ -21,12 +21,13 @@ import {
 import { t } from './i18n.js'
 
 export class AnnotationController {
-  constructor({ root, entitiesEl, annotations, getEditor, getLang, onChange }) {
+  constructor({ root, entitiesEl, annotations, getEditor, getLang, getLocked, onChange }) {
     this.root = root
     this.entitiesEl = entitiesEl
     this.annotations = annotations // Y.Array in the shared Yjs document
     this.getEditor = getEditor
     this.getLang = getLang || (() => 'de')
+    this.getLocked = getLocked || (() => []) // plain editorial keywords (display-only)
     this.onChange = onChange
     this._observer = () => this._changed()
     this.annotations.observe(this._observer)
@@ -112,6 +113,7 @@ export class AnnotationController {
       onClearAll: (count) => {
         if (window.confirm(t(this.getLang(), 'chips.clearAllConfirm', { count }))) this.clearAll()
       },
+      locked: this.getLocked(),
       lang: this.getLang(),
     })
   }

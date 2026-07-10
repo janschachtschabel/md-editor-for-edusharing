@@ -276,7 +276,11 @@ nur ein **opakes, widerrufbares Session-Token**; die eigentlichen Zugangsdaten
    `token`), diese reicht es über den WebSocket an den Server. `onAuthenticate`
    löst es via `resolveAuthToken` wieder zum echten Auth-Header auf und lädt/
    speichert damit im **Namen des Nutzers** (korrekter `cm:modifier` im Repo).
-4. **Logout** — `POST /api/logout` widerruft die Session sofort.
+4. **Logout** — `POST /api/logout` widerruft die Session sofort **und schließt
+   alle offenen Kollaborations-Verbindungen dieser Session** (auch zweite
+   Tabs/Geräte verlieren Presence + Schreibrecht). Ein Reconnect mit dem
+   widerrufenen Token wird abgelehnt — nur explizit anonymes Mitlesen bleibt
+   möglich.
 
 ### Write-Gate (Autorisierung)
 
@@ -535,17 +539,18 @@ Kurzfassung der Prinzipien (Details und Trade-off-Tabellen im verlinkten Dokumen
   (Zitat + Typ) sind direkt verwertbar, halluzinierte Zitate fallen durch.
 - **Überlappung** — verschachtelt/deckungsgleich erlaubt, kreuzend abgelehnt.
 - **Persistenz** — als General Keywords `Name (Typ)` in
-  `cclom:general_keyword` via setProperty + Read-Back. **Editor-verwaltet ist
-  jedes Keyword im Muster `Name (Typ)`**: mit Text-Anker als normale Pille,
-  ohne Anker (Text geändert, im *anderen* Feld getaggt — Kompendium und
-  Beschreibung teilen **ein** Keyword-Feld — oder redaktionelle
-  Disambiguierung wie `Merkur (Planet)`) als **verwaiste graue Pille**.
-  Verwaiste Pillen serialisieren sich beim Speichern zurück, solange sie
-  niemand löscht — kein stiller Verlust (Audit F-T1), aber auch kein
-  unlöschbares Kleben verwaister Entitäts-Keywords. Schlichte Keywords ohne
-  Muster (`preservedKeywords`) werden unverändert durchgereicht und **nie**
-  überschrieben; geschrieben wird dedupliziert
-  (`serializeEntityKeywords`/`mergeKeywords` in `src/annotations.js`).
+  `cclom:general_keyword` via setProperty + Read-Back. **`Name (Typ)`-Keywords
+  sind semantische Aussagen über die Texte des Knotens**: Beim Speichern
+  werden nur Entitäten geschrieben, deren Zitat in der Textbasis verankert ist
+  (Text dieses Dokuments **oder** das andere Feld — Kompendium und
+  Beschreibung teilen **ein** Keyword-Feld). Nirgends verankerte Entitäten
+  werden beim Speichern **automatisch entfernt** (Keyword + Pille;
+  server-seitiger Prune nach verifiziertem Save mit Live-Text-Recheck,
+  Snapshot-Refresh gegen Wiederauferstehung). Schlichte Keywords ohne Muster
+  (`preservedKeywords`) sind redaktionell: eingelesen, in der Leiste gesperrt
+  (🔒) angezeigt, byte-genau unverändert zurückgeschrieben; geschrieben wird
+  dedupliziert (`serializeEntityKeywords`/`mergeKeywords` in
+  `src/annotations.js`).
 - **Typ-Katalog** — zwei Ebenen (Didaktik/Wissensart + Entitätstypen,
   `src/entity-types.js`), freie Typen erlaubt (nur Klammern verboten).
 

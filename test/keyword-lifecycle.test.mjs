@@ -1,7 +1,14 @@
-// End-to-end keyword lifecycle over the REAL server persistence path:
-// pre-existing plain keywords ("Optik", "Mechanik") and parenthesized
-// non-entity keywords ("Merkur (Planet)", word absent from the text) must
-// survive every save while editor entities are added and removed.
+// End-to-end keyword lifecycle over the REAL server persistence path.
+//
+// Semantic model under test:
+//   - PLAIN keywords ("Optik", "Mechanik") are editorial — read, shown locked
+//     in the UI, and written back byte-exact on every save. Never lost.
+//   - "Name (Typ)" keywords are ENTITY STATEMENTS about the node's texts.
+//     On save, only entities whose quote is anchored in the node's TEXTBASE
+//     (current document text OR the node's other field — compendium and
+//     description share ONE keyword list) are written; unanchored ones are
+//     removed from the keywords AND their pills are pruned (a stale tag would
+//     falsify the semantic statement).
 //
 // Drives the real onLoadDocument + persistDocument hooks against a STATEFUL
 // fetch stub (a mock edu-sharing node whose properties are mutated by
@@ -16,12 +23,15 @@ function check(name, ok, extra = '') {
 }
 
 // --- stateful mock edu-sharing node -------------------------------------------
+// Compendium text anchors "Weimar" + "Kartoffel"; the DESCRIPTION field
+// anchors "Merkur" (cross-field entity). "Pluto" is anchored NOWHERE.
 const MARKDOWN = '# Kartoffel\n\nDie Kartoffel wurde in Weimar untersucht.'
 const nodeProps = {
   'ccm:oeh_collection_compendium_text': [MARKDOWN],
-  // Repo order deliberately puts the entity keyword in the MIDDLE: a pure
+  'cm:description': ['Merkur ist der innerste Planet.'],
+  // Repo order deliberately interleaves plain and entity keywords: a pure
   // reordering must never count as a keyword change (spurious writes).
-  'cclom:general_keyword': ['Optik', 'Weimar (Stadt)', 'Mechanik', 'Merkur (Planet)'],
+  'cclom:general_keyword': ['Optik', 'Weimar (Stadt)', 'Mechanik', 'Merkur (Planet)', 'Pluto (Planet)'],
 }
 const propertyWrites = [] // {property, values}
 
@@ -59,65 +69,62 @@ const doc = new Y.Doc()
 const ret = await cfg.onLoadDocument({ documentName, document: doc })
 const serverDoc = ret instanceof Y.Doc ? ret : doc
 const annotations = serverDoc.getArray('annotations')
+const quotes = () => annotations.toArray().map((a) => a.quote).sort()
+const lastKeywordWrite = () => propertyWrites.filter((w) => w.property === 'cclom:general_keyword').at(-1)
 
-// New semantics: EVERY "Name (Typ)" keyword becomes a pill — "Weimar (Stadt)"
-// anchored, "Merkur (Planet)" (word absent) as an ORPHAN pill. Plain keywords
-// ("Optik", "Mechanik") never become pills.
-check('load: both pattern keywords become pills (Weimar anchored, Merkur orphan)',
-  annotations.length === 2
-  && annotations.toArray().some((a) => a.quote === 'Weimar' && a.type === 'Stadt')
-  && annotations.toArray().some((a) => a.quote === 'Merkur' && a.type === 'Planet'))
+check('load: every pattern keyword becomes a pill (anchored or orphan)',
+  JSON.stringify(quotes()) === JSON.stringify(['Merkur', 'Pluto', 'Weimar']), quotes())
 
-// --- 1) save with NO changes: must be a complete no-op ------------------------
-// (merged keyword order differs from repo order — set-equality must win)
-await persistDocument(documentName, serverDoc, true)
-check('no-op save writes nothing (no spurious keyword reorder write)',
-  propertyWrites.length === 0, propertyWrites)
-
-// --- 2) add an entity: plain + foreign keywords must ride along ---------------
-annotations.push([{ id: 't1', quote: 'Kartoffel', occurrence: 1, type: 'Thema' }])
+// --- 1) first save: stale entity is auto-removed, cross-field entity survives --
 await persistDocument(documentName, serverDoc, true)
 {
-  const kw = propertyWrites.filter((w) => w.property === 'cclom:general_keyword').at(-1)
-  check('add entity: exactly one keyword write', Boolean(kw) && propertyWrites.length === 1, propertyWrites)
-  for (const expect of ['Optik', 'Mechanik', 'Merkur (Planet)', 'Weimar (Stadt)', 'Kartoffel (Thema)']) {
-    check(`add entity: "${expect}" present`, kw.values.includes(expect), kw.values)
-  }
-  check('add entity: no unexpected extras', kw.values.length === 5, kw.values)
+  const kw = lastKeywordWrite()
+  check('cleanup save: plain keywords survive', kw.values.includes('Optik') && kw.values.includes('Mechanik'), kw.values)
+  check('cleanup save: anchored entity survives (Weimar in compendium)', kw.values.includes('Weimar (Stadt)'), kw.values)
+  check('cleanup save: CROSS-FIELD entity survives (Merkur in description)', kw.values.includes('Merkur (Planet)'), kw.values)
+  check('cleanup save: entity anchored NOWHERE is auto-removed (Pluto)', !kw.values.includes('Pluto (Planet)'), kw.values)
+  check('cleanup save: Pluto pill pruned, cross-field orphan pill kept',
+    JSON.stringify(quotes()) === JSON.stringify(['Merkur', 'Weimar']), quotes())
 }
 
-// --- 3) delete SPECIFIC pills: Weimar + Kartoffel, keep the Merkur orphan ------
-serverDoc.transact(() => {
-  const arr = annotations.toArray()
-  for (let i = arr.length - 1; i >= 0; i--) {
-    if (arr[i].quote === 'Weimar' || arr[i].quote === 'Kartoffel') annotations.delete(i, 1)
-  }
-})
+// --- 2) save again without changes: pure no-op ---------------------------------
+{
+  const before = propertyWrites.length
+  await persistDocument(documentName, serverDoc, true)
+  check('second save is a no-op (no spurious writes)', propertyWrites.length === before,
+    propertyWrites.slice(before))
+}
+
+// --- 3) user tags an entity, then the anchoring text "disappears" ---------------
+// Simulated by pushing a pill whose quote is in NO text (same effect as
+// deleting the passage after tagging): the save must drop keyword + pill.
+annotations.push([
+  { id: 't1', quote: 'Kartoffel', occurrence: 1, type: 'Thema' },   // anchored → stays
+  { id: 't2', quote: 'Sonnental', occurrence: 1, type: 'Ort' },     // anchored nowhere → auto-removed
+])
 await persistDocument(documentName, serverDoc, true)
 {
-  const kw = propertyWrites.filter((w) => w.property === 'cclom:general_keyword').at(-1)
-  check('remove pills: plain "Optik" survives', kw.values.includes('Optik'), kw.values)
-  check('remove pills: plain "Mechanik" survives', kw.values.includes('Mechanik'), kw.values)
-  check('remove pills: kept ORPHAN pill "Merkur (Planet)" survives', kw.values.includes('Merkur (Planet)'), kw.values)
-  check('remove pills: "Weimar (Stadt)" removed (pill deleted)', !kw.values.includes('Weimar (Stadt)'), kw.values)
-  check('remove pills: "Kartoffel (Thema)" removed (pill deleted)', !kw.values.includes('Kartoffel (Thema)'), kw.values)
+  const kw = lastKeywordWrite()
+  check('tag + save: anchored new entity written', kw.values.includes('Kartoffel (Thema)'), kw.values)
+  check('tag + save: unanchored tag NOT written (semantic statement would be false)',
+    !kw.values.includes('Sonnental (Ort)'), kw.values)
+  check('tag + save: unanchored pill pruned automatically',
+    JSON.stringify(quotes()) === JSON.stringify(['Kartoffel', 'Merkur', 'Weimar']), quotes())
 }
 
-// --- 4) unload + reload: orphan comes back as a pill, then "delete ALL pills" ---
-// This is the reported stuck-keywords case: after clearing every pill and
-// saving, NO pattern keyword may stick to the node — only plain ones remain.
+// --- 4) unload + reload + "alle Pillen löschen" ---------------------------------
 await cfg.afterUnloadDocument({ documentName })
 docAuth.set(documentName, 'Basic dGVzdDpwdw==')
 const doc2 = new Y.Doc()
 const ret2 = await cfg.onLoadDocument({ documentName, document: doc2 })
 const serverDoc2 = ret2 instanceof Y.Doc ? ret2 : doc2
 const annotations2 = serverDoc2.getArray('annotations')
-check('reload: the kept orphan is a pill again (deletable, not stuck)',
-  annotations2.length === 1 && annotations2.get(0).quote === 'Merkur')
+check('reload: pills = the three surviving entities',
+  annotations2.toArray().map((a) => a.quote).sort().join(',') === 'Kartoffel,Merkur,Weimar')
 
-serverDoc2.transact(() => annotations2.delete(0, annotations2.length)) // "alle Pillen löschen"
+serverDoc2.transact(() => annotations2.delete(0, annotations2.length)) // „alle ✕"
 await persistDocument(documentName, serverDoc2, true)
-check('delete ALL pills + save: no pattern keyword sticks to the node',
+check('delete ALL pills + save: only plain keywords remain on the node',
   JSON.stringify([...nodeProps['cclom:general_keyword']].sort())
     === JSON.stringify(['Mechanik', 'Optik']), nodeProps['cclom:general_keyword'])
 

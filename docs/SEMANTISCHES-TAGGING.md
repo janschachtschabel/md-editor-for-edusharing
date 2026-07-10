@@ -150,19 +150,22 @@ Entitäten werden als **`cclom:general_keyword`** in der Form
   darf selbst Klammern enthalten („Willy Brandt (SPD)"), nur die *letzte*
   Klammergruppe zählt als Typ. Deshalb sind **Klammern in Typwerten
   verboten** (`isValidType`).
-- **Roundtrip mit Bestandsschutz:** Beim Laden wird **jedes** Keyword im
-  Muster `Name (Typ)` zur Annotation („consumed") — mit Text-Anker als normale
-  Pille, ohne Anker als **verwaiste (graue) Pille**. Beim Speichern wird die
-  Liste als `preservedKeywords (nur schlichte Keywords, unangetastet)` **+**
-  `serializeEntityKeywords (aus den aktuellen Annotationen, dedupliziert)`
-  zusammengesetzt. Konsequenz: Nichts geht still verloren (verwaiste Pillen
-  serialisieren sich zurück, solange sie nicht gelöscht werden — auch
-  redaktionelle Disambiguierungen wie `Merkur (Planet)` bleiben so erhalten,
-  nur eben sichtbar), und nichts klebt unlöschbar am Knoten (verwaiste
-  Entitäts-Keywords — Text geändert, oder im *anderen* Feld getaggt, denn
-  Kompendium und Beschreibung teilen **ein** Keyword-Feld — sind als Pille
-  löschbar). Allgemeines Merge-Muster: System-Skill `wlo-edu-sharing-api` →
-  „Keywords sicher schreiben".
+- **Roundtrip als semantische Aussage:** Beim Laden wird **jedes** Keyword im
+  Muster `Name (Typ)` zur Annotation — mit Anker im aktuellen Text als normale
+  Pille, ohne als **verwaiste (graue) Pille**. Beim Speichern gilt:
+  `preservedKeywords (nur schlichte, redaktionelle Keywords — unangetastet,
+  in der UI gesperrt 🔒 angezeigt)` **+** `Entitäten, deren Zitat in der
+  TEXTBASIS verankert ist` (Text dieses Dokuments **oder** das andere Feld des
+  Knotens — Kompendium und Beschreibung teilen **ein** Keyword-Feld; die
+  Prüfung gegen beide Texte verhindert, dass das Speichern im einen Feld die
+  Tags des anderen zerstört). **Nirgends verankerte Entitäten werden beim
+  Speichern automatisch entfernt** — Keyword und Pille (server-seitiger
+  Prune nach verifiziertem Save, Recheck gegen den Live-Text, damit ein
+  Undo während des Speicherns die Pille rettet) — ein veraltetes Tag würde
+  die semantische Aussage über den Text verfälschen. Der Reconnect-Snapshot
+  wird nach dem Prune aufgefrischt (sonst würden entfernte Pillen beim
+  nächsten Laden wiederauferstehen). Allgemeines Merge-Muster: System-Skill
+  `wlo-edu-sharing-api` → „Keywords sicher schreiben".
 - **Mengen-Vergleich:** Änderungserkennung und Read-Back vergleichen die
   Keyword-Liste als **Menge** (Reihenfolge egal) — sonst löst schon ein
   Umsortieren durch das Repo einen Phantom-Write aus.
