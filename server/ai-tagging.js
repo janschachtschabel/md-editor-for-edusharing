@@ -17,11 +17,12 @@
  */
 import { randomUUID } from 'node:crypto'
 import * as Y from 'yjs'
-import { AI_API_KEY, AI_BASE_URL, AI_MODEL, AI_TIMEOUT_MS } from './config.js'
+import { AI_API_KEY, AI_BASE_URL, AI_COOLDOWN_MS, AI_MODEL, AI_TIMEOUT_MS } from './config.js'
 import {
   findQuoteRange, isCrossing, isValidQuote, isValidType, resolveAnnotations,
 } from '../src/annotations.js'
 import { DEFAULT_BLOCK_ROLES, DEFAULT_TYPE_GROUPS, roleSlug } from '../src/entity-types.js'
+import { markdownToPlainText } from '../src/markdown.js'
 
 /** True when an API key is available (feature is otherwise hidden/disabled). */
 export function aiConfigured() {
@@ -33,6 +34,20 @@ const AI_USER = { name: '🤖 KI-Tagger', color: '#7b1fa2' }
 
 /** One tagging run per document at a time. */
 const running = new Set()
+
+/**
+ * End time of the last run per document — cost brake (audit P-1): a new run
+ * is only accepted AI_COOLDOWN_MS after the previous one finished. Expired
+ * entries are purged on every write so the map cannot grow without bound.
+ */
+const lastRunAt = new Map()
+function rememberRun(documentName) {
+  const now = Date.now()
+  for (const [name, at] of lastRunAt) {
+    if (now - at >= AI_COOLDOWN_MS) lastRunAt.delete(name)
+  }
+  lastRunAt.set(documentName, now)
+}
 
 // ------------------------------------------------------------- Broadcast ---
 function notify(document, obj) {
@@ -113,21 +128,25 @@ async function callModel(markdown, existingEntities) {
 /**
  * Validate entity suggestions exactly like human input and push the valid
  * ones into the shared Y.Array. Returns the number added.
+ * Anchoring runs against the PLAIN text (not the markdown source) — the model
+ * quotes wording, not markdown syntax; bold marks and turndown escaping would
+ * otherwise reject valid suggestions (audit KW-1).
  */
 function applyEntities(document, markdown, suggestions) {
+  const plain = markdownToPlainText(markdown)
   const arr = document.getArray('annotations')
   const current = arr.toArray()
-  const resolved = resolveAnnotations(current, markdown).filter((a) => a.start !== null)
+  const resolved = resolveAnnotations(current, plain).filter((a) => a.start !== null)
   const added = []
   for (const s of suggestions) {
     const quote = typeof s?.quote === 'string' ? s.quote : ''
     const type = typeof s?.type === 'string' ? s.type.trim() : ''
     if (!isValidQuote(quote) || !isValidType(type)) continue
-    const range = findQuoteRange(markdown, quote)
+    const range = findQuoteRange(plain, quote)
     if (!range) continue // hallucinated
     const isDup = [...current, ...added].some((a) => a.quote === quote && a.type === type)
     if (isDup) continue
-    const crosses = [...resolved, ...added.map((a) => ({ ...a, ...findQuoteRange(markdown, a.quote) }))]
+    const crosses = [...resolved, ...added.map((a) => ({ ...a, ...findQuoteRange(plain, a.quote) }))]
       .some((a) => a.start !== null && isCrossing(range, a))
     if (crosses) continue
     added.push({ id: randomUUID(), quote, occurrence: 1, type })
@@ -137,13 +156,17 @@ function applyEntities(document, markdown, suggestions) {
 }
 
 // ----------------------------------------------------------------- Roles ---
-/** Plain text of a Yjs XML subtree (Y.XmlText via delta, elements recursively). */
+/** Plain text of a Yjs XML subtree (Y.XmlText via delta, elements recursively).
+ * Children are joined with '\n' so text from adjacent blocks (e.g. two
+ * paragraphs in a blockquote) never concatenates into matchable text — quotes
+ * with '\n' are rejected (isValidQuote for entities, the applyRoles guard for
+ * roles), so a quote can only match WITHIN one block. */
 function ytextOf(node) {
   if (node instanceof Y.XmlText) {
     return node.toDelta().map((op) => (typeof op.insert === 'string' ? op.insert : '')).join('')
   }
   if (node instanceof Y.XmlElement) {
-    return node.toArray().map(ytextOf).join('')
+    return node.toArray().map(ytextOf).join('\n')
   }
   return ''
 }
@@ -174,9 +197,13 @@ function applyRoles(document, suggestions) {
   document.transact(() => {
     for (const s of suggestions) {
       const quote = typeof s?.quote === 'string' ? s.quote.trim() : ''
-      const endQuote = typeof s?.endQuote === 'string' ? s.endQuote.trim() : ''
+      const rawEnd = typeof s?.endQuote === 'string' ? s.endQuote.trim() : ''
+      // Multi-line quotes would defeat the '\n'-join block separation in
+      // ytextOf (same rule isValidQuote enforces for entities); a multi-line
+      // endQuote just falls back to the single start block
+      const endQuote = rawEnd.includes('\n') ? '' : rawEnd
       const slug = roleSlug(typeof s?.role === 'string' ? s.role : '')
-      if (!quote || !KNOWN_ROLES.has(slug)) continue
+      if (!quote || quote.includes('\n') || !KNOWN_ROLES.has(slug)) continue
       // Find the first not-yet-roled top-level block containing the quote.
       // (Already-wrapped blocks are roleBlock elements and skipped — this also
       // keeps a later suggestion from re-matching text wrapped moments ago.)
@@ -227,6 +254,12 @@ export async function runAiTagging({ document, documentName, markdown }) {
     notify(document, { phase: 'error', code: 'busy' })
     return { entities: 0, roles: 0, error: 'busy' }
   }
+  const readyAt = (lastRunAt.get(documentName) || 0) + AI_COOLDOWN_MS
+  if (AI_COOLDOWN_MS > 0 && Date.now() < readyAt) {
+    const retryInSec = Math.ceil((readyAt - Date.now()) / 1000)
+    notify(document, { phase: 'error', code: 'cooldown', retryInSec })
+    return { entities: 0, roles: 0, error: 'cooldown' }
+  }
   running.add(documentName)
   notify(document, { phase: 'started' })
   // Join as a visible collaborative participant (works on hocuspocus docs;
@@ -249,5 +282,6 @@ export async function runAiTagging({ document, documentName, markdown }) {
   } finally {
     try { document.awareness?.setLocalState(null) } catch { /* no awareness */ }
     running.delete(documentName)
+    rememberRun(documentName)
   }
 }

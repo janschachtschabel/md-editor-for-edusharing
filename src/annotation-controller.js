@@ -49,6 +49,18 @@ export class AnnotationController {
   }
 
   /**
+   * Public export: annotations resolved against the editor's PLAIN text —
+   * the same text pills/decorations anchor against. Never resolve against
+   * the markdown source: formatting marks and escaping would report valid
+   * anchors as orphaned (audit KW-1).
+   */
+  resolvedList() {
+    const editor = this.getEditor()
+    if (!editor) return this.raw().map((a) => ({ ...a, start: null, end: null }))
+    return this.list(buildTextIndex(editor.state.doc).text)
+  }
+
+  /**
    * Programmatic tagging — the AI entry point ("quotes for the AI, offsets
    * for the code"): callers pass the exact wording, positions are resolved
    * here. Returns an error message (quote not found / crossing) or null.

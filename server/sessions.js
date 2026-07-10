@@ -55,6 +55,49 @@ export function createSessionStore({ ttlMs }) {
 export const sessionStore = createSessionStore({ ttlMs: SESSION_TTL_MS })
 
 /**
+ * Live WebSocket connections per session token, so that a logout can
+ * terminate the session EVERYWHERE — without this, a second tab/device using
+ * the same session kept its connection (presence + write access) until the
+ * tab was closed, even though the token had been revoked. Registered via the
+ * collaboration layer's connected/onDisconnect hooks (server/collab.js).
+ */
+const sessionConnections = new Map() // token → Map<socketId, connection>
+
+/** Register a live collaboration connection under its session token. */
+export function registerSessionConnection(token, socketId, connection) {
+  let conns = sessionConnections.get(token)
+  if (!conns) {
+    conns = new Map()
+    sessionConnections.set(token, conns)
+  }
+  conns.set(socketId, connection)
+}
+
+/** Unregister on normal disconnect so the registry cannot grow stale. */
+export function unregisterSessionConnection(token, socketId) {
+  const conns = sessionConnections.get(token)
+  if (!conns) return
+  conns.delete(socketId)
+  if (!conns.size) sessionConnections.delete(token)
+}
+
+/** Close every open collaboration connection of a (just revoked) session. */
+export function closeSessionConnections(token) {
+  const conns = sessionConnections.get(token)
+  if (!conns) return 0
+  sessionConnections.delete(token)
+  let closed = 0
+  for (const connection of conns.values()) {
+    try {
+      connection.close({ code: 4403, reason: 'Session beendet (Logout)' })
+      closed++
+    } catch { /* already gone */ }
+  }
+  if (closed) console.log(`[auth] logout closed ${closed} open connection(s) of the session`)
+  return closed
+}
+
+/**
  * Resolve an Authorization header (or WS token) to a Basic auth header:
  *  - opaque session token  → stored Basic header (preferred path)
  *  - "Basic …" passthrough → kept as-is (non-browser API clients)

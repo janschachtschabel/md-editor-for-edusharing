@@ -83,6 +83,7 @@ Optionally create a `.env` (template: [.env.example](.env.example)):
 | `PORT` | `3000` | HTTP and WebSocket port |
 | `SAVE_DEBOUNCE_MS` | `15000` | repo write at the earliest X ms after the last change |
 | `SAVE_MAX_DEBOUNCE_MS` | `90000` | at the latest every X ms while typing continuously |
+| `SAVE_RETRY_MS` | `30000` | wait before retrying a failed repo write |
 | `EDU_TIMEOUT_MS` | `15000` | timeout per edu-sharing REST call |
 | `LOGIN_RATE_MAX` | `10` | max login attempts per IP within the window |
 | `LOGIN_RATE_WINDOW_MS` | `300000` | window length for the login rate limit |
@@ -94,6 +95,7 @@ Optionally create a `.env` (template: [.env.example](.env.example)):
 | `AI_MODEL` | `gpt-5.4-mini` | chat model on the B-API OpenAI passthrough |
 | `AI_BASE_URL` | derived | OpenAI-compatible base URL; derived from the repo host (`repository.X` → `b-api.X/api/v1/llm/openai`) |
 | `AI_TIMEOUT_MS` | `90000` | timeout per model call |
+| `AI_COOLDOWN_MS` | `30000` | wait per document between AI runs (cost brake, 0 = off) |
 
 ### AI auto-tagging (🤖)
 
@@ -106,8 +108,9 @@ document after validation, and leaves again. AI suggestions pass the exact
 same validation as human input (hallucinated quotes, crossing spans,
 duplicates and non-catalog roles are dropped). The API key never leaves the
 server; triggering requires a write-enabled connection (enforced server-side
-and covered by tests). At most one AI run per document at a time; if the model
-call fails, the error is shown immediately — clicking again is the retry
+and covered by tests). At most one AI run per document at a time, with a
+short wait between runs as a cost brake (`AI_COOLDOWN_MS`, default 30 s); if
+the model call fails, the error is shown immediately — clicking again is the retry
 (deliberately no automatic one). Implementation is encapsulated in
 [server/ai-tagging.js](server/ai-tagging.js).
 
@@ -133,9 +136,11 @@ an API integration that runs the real server against a mocked repository,
 i18n key parity (de/en), the annotation UI (dialogs incl. focus management,
 jsdom), two server integration suites against a stubbed repository
 (Yjs reconnect without duplication; keyword lifecycle: pre-existing keywords
-survive entity changes), and AI auto-tagging against a stubbed model
-(validation, read-only gate, busy lock, stale suggestions during concurrent
-edits).
+survive entity changes), AI auto-tagging against a stubbed model
+(validation, read-only gate, busy lock, cooldown, stale suggestions during
+concurrent edits), and the web component itself in a jsdom harness (real
+TipTap editor, network stubbed at the WebSocket: toolbar, save-bar states,
+role chips, read-only toggling, session-expired).
 
 ## Embedding the web component
 
@@ -162,10 +167,10 @@ nothing about edu-sharing — it only talks to the collab server.
 |---|---|---|
 | `editor-ready` | `{editor}` | TipTap instance available |
 | `markdown-change` | `{markdown}` | current state as markdown (debounced 1 s) |
-| `status-change` | `{status}` | `connecting` / `connected` / `disconnected` |
+| `status-change` | `{status}` | `connecting` / `connected` / `disconnected` / `session-expired` (session expired or logged out elsewhere — sign in again) |
 | `users-change` | `{users:[{name,color,isSelf,active}]}` | presence incl. "currently typing" |
 | `save-state-change` | `{dirty, saving, lastSavedAt, …}` | save state (server broadcast) |
-| `annotations-change` | `{annotations:[{id,quote,occurrence,type,entityId,start,end}]}` | semantic tags (standoff, offsets resolved against the current markdown) |
+| `annotations-change` | `{annotations:[{id,quote,occurrence,type,entityId,start,end}]}` | semantic tags (standoff, offsets resolved against the editor plain text) |
 | `synced` | `{}` | initial synchronization finished |
 
 Methods: `getMarkdown(): string`, `getAnnotations()`,
@@ -342,6 +347,7 @@ server/ai-tagging.js       AI auto-tagging (B-API, encapsulated; 🤖 button)
 src/md-collab-editor.js    web component
 src/toolbar.js             toolbar definition
 src/save-state.js          save-bar logic (pure, unit-tested)
+src/save-bar.js            save-bar controller (DOM, server events, ticker)
 src/annotations.js         semantic tagging — pure logic (unit-tested)
 src/entity-types.js        default entity-type catalog (unit-tested)
 src/annotation-extension.js tag rendering as ProseMirror decorations

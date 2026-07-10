@@ -9,6 +9,7 @@
 // Configure BEFORE the module (and its config.js) is imported below
 process.env.AI_API_KEY = 'test-key'
 process.env.AI_MODEL = 'gpt-5.4-mini'
+process.env.AI_COOLDOWN_MS = '60000' // cooldown behavior is asserted explicitly below
 
 import { TiptapTransformer } from '@hocuspocus/transformer'
 import { generateHTML, generateJSON } from '@tiptap/html'
@@ -107,10 +108,30 @@ check('status broadcasts: started then done with counts',
   broadcasts)
 
 // --- second run: everything is a duplicate now → no new tags ---------------------
-const result2 = await runAiTagging({ document: ydoc, documentName: 'test-doc', markdown: mdAfter })
+// (own documentName: the per-document cooldown would otherwise reject the re-run)
+const result2 = await runAiTagging({ document: ydoc, documentName: 'test-doc-rerun', markdown: mdAfter })
 check('re-run adds nothing (duplicates + already-roled block skipped)',
   result2.entities === 0 && result2.roles === 0
   && ydoc.getArray('annotations').length === 2, result2)
+
+// --- cooldown: a completed run blocks the next one on the SAME document ----------
+// (audit P-1: without it any write-capable user can drive model costs freely)
+{
+  const coolDoc = TiptapTransformer.toYdoc(generateJSON(markdownToHtml(MD), extensions), 'default', extensions)
+  const coolBroadcasts = []
+  coolDoc.broadcastStateless = (s) => coolBroadcasts.push(JSON.parse(s))
+  const first = await runAiTagging({ document: coolDoc, documentName: 'cool-doc', markdown: MD })
+  check('cooldown: first run completes normally', first.entities === 2 && !first.error, first)
+  const callsBeforeCooldown = modelCalls
+  const second = await runAiTagging({ document: coolDoc, documentName: 'cool-doc', markdown: MD })
+  check('cooldown: immediate second run is rejected without a model call',
+    second.error === 'cooldown' && modelCalls === callsBeforeCooldown, second)
+  check('cooldown: clients are told the wait in seconds',
+    coolBroadcasts.some((b) => b.code === 'cooldown' && b.retryInSec > 0 && b.retryInSec <= 60),
+    coolBroadcasts)
+  check('cooldown: a DIFFERENT document is not affected',
+    !(await runAiTagging({ document: coolDoc, documentName: 'other-cool-doc', markdown: MD })).error)
+}
 
 // --- authorization gate (the REAL collab.js onStateless hook) --------------------
 // Read-only connections must not be able to use the AI as a write proxy —
@@ -226,6 +247,75 @@ Hier beginnt der Hauptteil.`
   check('unknown endQuote falls back to single-block wrap',
     /::: kernidee\r?\nHier beginnt der Hauptteil\.\r?\n:::/.test(spanMd), spanMd)
   check('span run reports two roles', spanResult.roles === 2, spanResult)
+  globalThis.fetch = plainFetch
+}
+
+// --- nested blocks: quote crossing a paragraph boundary must NOT match -------------
+// ytextOf must separate block children (audit 6, L-1): a blockquote with two
+// paragraphs ("Ende eins." / "Zwei Anfang.") must not expose the concatenation
+// artifact "eins.Zwei" as matchable text — otherwise a garbled model quote
+// wraps the wrong block. A quote WITHIN one paragraph still has to match.
+{
+  const BQ_MD = `> Ende eins.
+>
+> Zwei Anfang.
+
+Normaler Absatz.`
+  const plainFetch = globalThis.fetch
+  globalThis.fetch = async () => ({
+    ok: true, status: 200, headers: { get: () => 'application/json' },
+    json: async () => ({ choices: [{ message: { content: JSON.stringify({
+      entities: [],
+      roles: [
+        // crosses the paragraph boundary inside the blockquote → must be skipped
+        { quote: 'eins.Zwei', role: 'einleitung' },
+        // lies within ONE paragraph of the blockquote → must still wrap it
+        { quote: 'Zwei Anfang.', role: 'merksatz' },
+      ],
+    }) } }] }),
+  })
+  const bqDoc = TiptapTransformer.toYdoc(generateJSON(markdownToHtml(BQ_MD), extensions), 'default', extensions)
+  bqDoc.broadcastStateless = () => {}
+  const bqResult = await runAiTagging({ document: bqDoc, documentName: 'bq-doc', markdown: BQ_MD })
+  const bqMd = htmlToMarkdown(generateHTML(TiptapTransformer.fromYdoc(bqDoc, 'default'), extensions))
+  check('cross-paragraph-boundary quote does NOT match (no einleitung fence)',
+    !/::: einleitung/.test(bqMd), bqMd)
+  check('within-paragraph quote in a nested block still wraps the blockquote',
+    bqResult.roles === 1 && /::: merksatz/.test(bqMd), bqMd)
+  globalThis.fetch = plainFetch
+}
+
+// --- role quotes containing '\n' are rejected (audit 7, N-1) ----------------------
+// The '\n'-join in ytextOf only guarantees "a quote matches WITHIN one block"
+// if multi-line quotes never reach the matcher — enforce it like isValidQuote
+// does for entities. A multi-line endQuote falls back to the single start block.
+{
+  const NL_MD = `> Ende eins.
+>
+> Zwei Anfang.
+
+Normaler Absatz.`
+  const plainFetch = globalThis.fetch
+  globalThis.fetch = async () => ({
+    ok: true, status: 200, headers: { get: () => 'application/json' },
+    json: async () => ({ choices: [{ message: { content: JSON.stringify({
+      entities: [],
+      roles: [
+        // multi-line quote (matches the joined blockquote text) → must be rejected
+        { quote: 'Ende eins.\nZwei Anfang.', role: 'einleitung' },
+        // multi-line endQuote → fall back to wrapping only the start block
+        { quote: 'Normaler Absatz.', endQuote: 'Egal\nwas.', role: 'merksatz' },
+      ],
+    }) } }] }),
+  })
+  const nlDoc = TiptapTransformer.toYdoc(generateJSON(markdownToHtml(NL_MD), extensions), 'default', extensions)
+  nlDoc.broadcastStateless = () => {}
+  const nlResult = await runAiTagging({ document: nlDoc, documentName: 'nl-doc', markdown: NL_MD })
+  const nlMd = htmlToMarkdown(generateHTML(TiptapTransformer.fromYdoc(nlDoc, 'default'), extensions))
+  check('multi-line role quote is rejected (no einleitung fence)',
+    !/::: einleitung/.test(nlMd), nlMd)
+  check('multi-line endQuote falls back to single-block wrap',
+    nlResult.roles === 1 && /::: merksatz\r?\nNormaler Absatz\.\r?\n:::/.test(nlMd), nlMd)
   globalThis.fetch = plainFetch
 }
 

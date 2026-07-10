@@ -94,9 +94,11 @@ Eigenschaften des gewählten Modells:
   Text steht, findet die Suche nichts → Annotation wird abgelehnt
   (`addAnnotation` gibt eine Fehlermeldung zurück).
 - **Verwaiste Tags:** Wird der Wortlaut aus dem Text gelöscht, ist das Tag
-  nicht mehr auflösbar (`start/end = null`). Es wird in der Entitäten-Leiste
-  ausgegraut angezeigt und bleibt als Keyword erhalten, bis es explizit
-  entfernt wird — kein stilles Verschwinden.
+  nicht mehr auflösbar (`start/end = null`) und wird in der Entitäten-Leiste
+  ausgegraut angezeigt. Beim nächsten Speichern wird es **automatisch
+  entfernt**, sofern es nicht im anderen Feld des Knotens verankert ist
+  (Details: Prinzip 5) — Rückgängig (↶) vor dem Speichern stellt die
+  Verankerung wieder her.
 - **Längen-/Blockgrenze:** Zitate sind auf `MAX_QUOTE_LENGTH` (200) begrenzt
   und dürfen **keinen Zeilenumbruch** enthalten (`isValidQuote`) — ein Span
   über Absatzgrenzen wäre im Keyword nicht stabil. Genau dafür gibt es die
@@ -238,7 +240,9 @@ Hauptgrund für Standoff bei Entitäten — wird hier nicht gebraucht.
   Rollen aus externem Markdown werden dynamisch ergänzt. Zusätzlich zeigt eine
   **Rollen-Leiste** (amberfarbene Chips, getrennt von den blauen
   Entitäten-Chips) alle Absatzrollen des Dokuments — Klick springt zur Stelle,
-  ✕ entfernt die Rolle.
+  ✕ entfernt die Rolle, **„alle ✕"** (ab 2 Rollen, mit Rückfrage) entfernt
+  sämtliche Rollen auf einmal (`unsetAllRoles`); die Entitäten-Leiste hat
+  denselben Sammel-Button für alle Pillen (`clearAll`).
 - **Granularität:** Ganzer Absatz (Cursor + Select) **oder** Teil-Auswahl: wird
   nur ein Satz(teil) markiert und eine Rolle gewählt, teilt der Editor den
   Absatz automatisch (`setRole` mit `split`+`findWrapping`) — der markierte Teil
@@ -268,7 +272,7 @@ const error = editor.addAnnotation({ quote: 'Weimar', type: 'Ort' })
 // Strukturierter Export (A2):
 editor.getAnnotations()
 // → [{id, quote, occurrence, type, entityId, start, end}] — Offsets gegen
-//   das aktuelle Markdown, null bei verwaisten Tags
+//   den Plain-Text des Editors, null bei verwaisten Tags
 
 editor.addEventListener('annotations-change', (e) => e.detail.annotations)
 
@@ -312,7 +316,8 @@ auslösen.
 | [src/annotation-controller.js](../src/annotation-controller.js) | Entitäten | Feature-Controller: Y.Array, Validierung, Dialog-Orchestrierung | indirekt |
 | [src/role-block.js](../src/role-block.js) | Rollen | TipTap-Node `roleBlock` (`:::`-Container) + Befehle `setRole`/`unsetRole` | `test/roundtrip.test.mjs` |
 | [src/markdown.js](../src/markdown.js) | Rollen | marked-Tokenizer + Turndown-Regel für den `:::`-Roundtrip | `test/roundtrip.test.mjs` |
-| [src/md-collab-editor.js](../src/md-collab-editor.js) | beide | Toolbar: Entitäts-Button (Dialog) + Rollen-Select; Verdrahtung | indirekt |
+| [src/role-ui.js](../src/role-ui.js) | Rollen | Rollen-Select (Toolbar) + Rollen-Chips-Leiste | `test/component.test.mjs` (jsdom) |
+| [src/md-collab-editor.js](../src/md-collab-editor.js) | beide | Toolbar: Entitäts-Button (Dialog) + Rollen-Select; Verdrahtung | `test/component.test.mjs` (jsdom) |
 | [server/ai-tagging.js](../server/ai-tagging.js) | beide | KI-Verschlagwortung: B-API-Call, Validierung, Anwendung auf Y.Array + Y.Doc, Presence, Status-Broadcasts | `test/ai-tagging.test.mjs` |
 | [server/collab.js](../server/collab.js) | Entitäten | Seed beim Laden, Keyword-Ableitung + Read-Back beim Speichern; `ai-tag`-Kommando | `test/keyword-lifecycle.test.mjs`, `test/collab-load.test.mjs` |
 | [server/edu-sharing-api.js](../server/edu-sharing-api.js) | Entitäten | `cclom:general_keyword` lesen/schreiben (setProperty) | indirekt |

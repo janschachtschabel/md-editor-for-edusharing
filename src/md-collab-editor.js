@@ -23,6 +23,7 @@
  *     editor-ready      {editor}
  *     markdown-change   {markdown}  — debounced (1s), current state as markdown
  *     status-change     {status}    — 'connecting' | 'connected' | 'disconnected'
+ *                                     | 'session-expired' (token rejected — sign in again)
  *     users-change      {users: [{name, color, isSelf, active}]}
  *     save-state-change {dirty, saving, lastSavedAt, autosave, canPersist, error, …}
  *     synced            {}          — initial server synchronization finished
@@ -31,7 +32,7 @@
  *     getMarkdown(): string
  *     getAnnotations(): [{id, quote, occurrence, type, entityId, start, end}]
  *                       — standoff annotations, offsets resolved against the
- *                         current markdown (start/end null = quote not found)
+ *                         editor's plain text (start/end null = quote not found)
  *     addAnnotation({quote, type, entityId?, occurrence?}): string|null
  *                       — programmatic tagging (e.g. AI results); returns an
  *                         error message or null on success
@@ -48,12 +49,12 @@ import CollaborationCaret from '@tiptap/extension-collaboration-caret'
 import { HocuspocusProvider } from '@hocuspocus/provider'
 import { createExtensions } from './extensions.js'
 import { htmlToMarkdown } from './markdown.js'
-import { computeSaveBar } from './save-state.js'
+import { SaveBarUi } from './save-bar.js'
 import { TOOLBAR } from './toolbar.js'
 import { AnnotationDecorations } from './annotation-extension.js'
 import { AnnotationController } from './annotation-controller.js'
 import { PresenceTracker } from './presence.js'
-import { DEFAULT_BLOCK_ROLES, roleLabel } from './entity-types.js'
+import { RoleUi } from './role-ui.js'
 import { t, setActiveLang, LANGS, DEFAULT_LANG } from './i18n.js'
 
 // User colors for carets/presence chips — all chosen for ≥4.5:1 contrast
@@ -100,48 +101,29 @@ class MdCollabEditor extends HTMLElement {
     this._usersEl.className = 'mce-users'
     this._usersEl.setAttribute('part', 'users')
 
-    // Save bar: status LED + countdown/time + "Speichern" button
-    this._saveBarEl = document.createElement('span')
-    this._saveBarEl.className = 'mce-savebar'
-    this._saveBarEl.setAttribute('part', 'savebar')
-    this._saveBarEl.innerHTML = `
-      <span class="mce-save-dot" data-state="idle" aria-hidden="true"></span>
-      <span class="mce-save-text" role="status" aria-live="polite">–</span>
-      <button type="button" class="mce-save-btn" disabled>${t(this._lang, 'editor.saveButton')}</button>
-    `
-    this._saveBarEl.querySelector('.mce-save-btn').addEventListener('click', () => {
-      if (!this._save.dirty || this._save.saving) return
-      this._save.saving = true
-      this._renderSaveBar()
-      this.provider.sendStateless(JSON.stringify({ event: 'save' }))
-      // Safety net: if the server never answers (connection drop), don't leave
-      // the button stuck on "Speichere …" forever (audit L-01)
-      clearTimeout(this._saveTimeout)
-      this._saveTimeout = setTimeout(() => {
-        if (this._save.saving) {
-          this._save.saving = false
-          this._save.error = t(this._lang, 'editor.saveTimeoutError')
-          this._renderSaveBar()
-        }
-      }, 20000)
+    // Save bar (LED + countdown + "Speichern" button) — state, DOM and server
+    // events live in the controller (src/save-bar.js)
+    this._saveBar = new SaveBarUi({
+      getLang: () => this._lang,
+      sendSave: () => this.provider.sendStateless(JSON.stringify({ event: 'save' })),
+      onStateChange: (state) => this._emit('save-state-change', state),
     })
-
-    // Save state: dirty/lastChange observed locally (every client sees all
-    // Yjs changes), save results arrive as broadcasts from the server
-    this._save = {
-      dirty: false, dirtySince: 0, lastChange: 0,
-      lastSavedAt: null, saving: false, error: null,
-      autosave: true, debounce: 15000, maxDebounce: 90000,
-      canPersist: false, synced: false,
-    }
 
     this.provider = new HocuspocusProvider({
       url: wsUrl,
       name: documentName,
       token: token || 'anonymous',
       onStatus: ({ status }) => this._emit('status-change', { status }),
+      // The server REJECTS presented-but-invalid tokens (expired 8 h session,
+      // logout on another tab/device). Stop the provider's reconnect loop —
+      // every retry would be rejected again — and tell the host WHY, instead
+      // of showing a bare "disconnected" (audit UX-1).
+      onAuthenticationFailed: () => {
+        this.provider.disconnect()
+        this._emit('status-change', { status: 'session-expired' })
+      },
       onSynced: () => {
-        this._save.synced = true
+        this._saveBar.markSynced()
         // Ask the server for the save state (answered by a config broadcast)
         this.provider.sendStateless(JSON.stringify({ event: 'hello' }))
         this._emit('synced', {})
@@ -161,6 +143,13 @@ class MdCollabEditor extends HTMLElement {
       getLang: () => this._lang,
       getLocked: () => this._plainKeywords || [],
       onChange: () => this._onAnnotationsChanged(),
+    })
+
+    // Paragraph-role UI (select + amber chips bar) — src/role-ui.js
+    this._roles = new RoleUi({
+      rolesEl: this._rolesEl,
+      getEditor: () => this.editor,
+      getLang: () => this._lang,
     })
 
     // Presence: awareness tracking + chips live in src/presence.js (F-T5);
@@ -191,29 +180,22 @@ class MdCollabEditor extends HTMLElement {
       onTransaction: () => this._updateToolbar(),
       onUpdate: () => {
         this._scheduleMarkdownEmit()
-        this._renderRoleChips() // roles live in the doc → refresh on every change
-        // Track changes (own AND remote) for the save countdown — but only
-        // after the initial sync, otherwise preloading would count as a change
-        if (this._save.synced) {
-          const now = Date.now()
-          if (!this._save.dirty) this._save.dirtySince = now
-          this._save.dirty = true
-          this._save.lastChange = now
-          this._renderSaveBar()
-        }
+        this._roles.renderChips() // roles live in the doc → refresh on every change
+        // Track changes (own AND remote) for the save countdown
+        this._saveBar.noteChange()
       },
       onCreate: () => this._emit('editor-ready', { editor: this.editor }),
     })
 
     this._renderToolbar()
     this._tags.renderChips()
-    this._renderRoleChips()
-    this._saveTicker = setInterval(() => this._renderSaveBar(), 1000)
+    this._roles.renderChips()
 
     // Warn on leave if unsaved changes would be lost (autosave off — with
     // autosave on the server itself saves on the last disconnect)
     this._beforeUnload = (e) => {
-      if (this._save.dirty && !this._save.autosave && this._save.canPersist) {
+      const s = this._saveBar.state
+      if (s.dirty && !s.autosave && s.canPersist) {
         e.preventDefault()
         e.returnValue = ''
       }
@@ -223,9 +205,8 @@ class MdCollabEditor extends HTMLElement {
 
   disconnectedCallback() {
     this._presence?.dispose()
-    clearInterval(this._saveTicker)
+    this._saveBar?.dispose()
     clearTimeout(this._mdTimer)
-    clearTimeout(this._saveTimeout)
     clearTimeout(this._aiStatusTimer)
     this._tags?.dispose()
     window.removeEventListener('beforeunload', this._beforeUnload)
@@ -236,7 +217,14 @@ class MdCollabEditor extends HTMLElement {
 
   attributeChangedCallback(name, _old, value) {
     if (!this.editor) return
-    if (name === 'read-only') this.editor.setEditable(value !== 'true')
+    if (name === 'read-only') {
+      // Suppress TipTap's update emit — it would mark the doc dirty without a
+      // document change (audit 7, N-2); refresh the affected UI explicitly
+      this.editor.setEditable(value !== 'true', false)
+      this._updateToolbar()
+      this._roles.renderChips()
+      this._tags.renderChips()
+    }
     if (name === 'user-name') {
       this.editor.chain().updateUser({ name: value, color: this.getAttribute('user-color') }).run()
     }
@@ -247,9 +235,11 @@ class MdCollabEditor extends HTMLElement {
     return this.editor ? htmlToMarkdown(this.editor.getHTML()) : ''
   }
 
-  /** Standoff export: annotations with offsets resolved against the markdown. */
+  /** Standoff export: annotations with offsets resolved against the editor's
+   * PLAIN text (the anchor text of pills/decorations) — not the markdown
+   * source, whose formatting marks/escaping would report false orphans. */
   getAnnotations() {
-    return this._tags ? this._tags.list(this.getMarkdown()) : []
+    return this._tags ? this._tags.resolvedList() : []
   }
 
   /** Programmatic tagging (AI entry point) — error message or null. */
@@ -312,26 +302,10 @@ class MdCollabEditor extends HTMLElement {
     this._tagBtn.addEventListener('click', () => this._tags.openTagDialog())
     bar.appendChild(this._tagBtn)
 
-    // Paragraph-role control (the SECOND tagging system): a single exclusive
-    // choice per block → a <select>, distinct from the multi-toggle entity
-    // tagging. Roles are structure (::: markup), never keywords.
-    this._roleSelect = document.createElement('select')
-    this._roleSelect.className = 'mce-role-select'
-    this._roleSelect.title = t(this._lang, 'toolbar.roleTitle')
-    this._roleSelect.setAttribute('aria-label', t(this._lang, 'toolbar.roleTitle'))
-    this._roleSelect.appendChild(new Option(t(this._lang, 'toolbar.roleNone'), ''))
-    this._roleSelect.appendChild(new Option(t(this._lang, 'toolbar.roleClear'), '__clear__'))
-    const roleGroup = document.createElement('optgroup')
-    roleGroup.label = t(this._lang, 'toolbar.roleGroupLabel')
-    for (const r of DEFAULT_BLOCK_ROLES) roleGroup.appendChild(new Option(roleLabel(r.slug, this._lang), r.slug))
-    this._roleSelect.appendChild(roleGroup)
-    this._roleSelect.addEventListener('change', () => {
-      const v = this._roleSelect.value
-      if (v === '__clear__') this.editor.chain().focus().unsetRole().run()
-      else if (v) this.editor.chain().focus().setRole(v).run()
-      this._updateToolbar()
-    })
-    bar.appendChild(this._roleSelect)
+    // Paragraph-role control (the SECOND tagging system, src/role-ui.js):
+    // a single exclusive choice per block → a <select>, distinct from the
+    // multi-toggle entity tagging. Roles are structure, never keywords.
+    bar.appendChild(this._roles.buildSelect())
 
     // AI auto-tagging trigger — the actual AI lives entirely on the server
     // (server/ai-tagging.js); the button just sends the command and mirrors
@@ -354,7 +328,7 @@ class MdCollabEditor extends HTMLElement {
     bar.appendChild(this._aiStatusEl)
 
     bar.appendChild(this._usersEl)
-    bar.appendChild(this._saveBarEl)
+    bar.appendChild(this._saveBar.build())
 
     // WAI-ARIA toolbar pattern: one tab stop, arrow keys move between buttons
     const rovingButtons = () =>
@@ -382,22 +356,19 @@ class MdCollabEditor extends HTMLElement {
     })
 
     this._updateToolbar()
-    this._renderSaveBar()
+    this._saveBar.render()
   }
 
-  /** Server broadcasts: save results + configuration (consistent for all clients). */
+  /** Server broadcasts: routes AI status + component extras here, save state
+   * ('config'/'saved'/'save-error') to the save-bar controller. */
   _onStateless(payload) {
     let msg
     try { msg = JSON.parse(payload) } catch { return }
-    const s = this._save
+    if (msg.event === 'ai-status') {
+      this._onAiStatus(msg)
+      return // AI status does not touch the save state
+    }
     if (msg.event === 'config') {
-      s.debounce = msg.saveDebounceMs ?? s.debounce
-      s.maxDebounce = msg.saveMaxDebounceMs ?? s.maxDebounce
-      s.autosave = msg.autosave ?? s.autosave
-      s.canPersist = msg.canPersist ?? s.canPersist
-      s.lastSavedAt = msg.lastSavedAt ?? s.lastSavedAt
-      if (msg.dirty && !s.dirty) { s.dirty = true; s.dirtySince = Date.now(); s.lastChange = Date.now() }
-      if (msg.dirty === false) s.dirty = false
       // AI tagging button only appears when the server has a model configured
       if (this._aiBtn && msg.aiAvailable !== undefined) {
         this._aiBtn.style.display = msg.aiAvailable ? '' : 'none'
@@ -407,22 +378,8 @@ class MdCollabEditor extends HTMLElement {
         this._plainKeywords = msg.plainKeywords
         this._tags.renderChips()
       }
-    } else if (msg.event === 'ai-status') {
-      this._onAiStatus(msg)
-      return // AI status does not touch the save state
-    } else if (msg.event === 'saved') {
-      clearTimeout(this._saveTimeout)
-      s.dirty = false
-      s.saving = false
-      s.error = null
-      if (msg.at) s.lastSavedAt = msg.at
-    } else if (msg.event === 'save-error') {
-      clearTimeout(this._saveTimeout)
-      s.saving = false
-      s.error = msg.message || t(this._lang, 'editor.saveFailedFallback')
     }
-    this._renderSaveBar()
-    this._emit('save-state-change', { ...s })
+    this._saveBar.applyServerEvent(msg)
   }
 
   /** Mirror the server's AI-tagging status (codes → translated messages). */
@@ -446,19 +403,13 @@ class MdCollabEditor extends HTMLElement {
     if (msg.phase === 'done') {
       set(t(this._lang, 'ai.done', { entities: msg.entities ?? 0, roles: msg.roles ?? 0 }))
     } else if (msg.phase === 'error') {
+      if (msg.code === 'cooldown') {
+        set(t(this._lang, 'ai.errorCooldown', { secs: msg.retryInSec ?? '?' }), true)
+        return
+      }
       const key = { busy: 'ai.errorBusy', 'no-write': 'ai.errorNoWrite', 'not-configured': 'ai.errorNotConfigured' }[msg.code]
       set(key ? t(this._lang, key) : t(this._lang, 'ai.errorUpstream', { detail: msg.detail || msg.code || '?' }), true)
     }
-  }
-
-  _renderSaveBar() {
-    if (!this._saveBarEl) return
-    const { state, label, title, canSaveNow } = computeSaveBar(this._save, Date.now(), this._lang)
-    this._saveBarEl.querySelector('.mce-save-dot').dataset.state = state
-    const text = this._saveBarEl.querySelector('.mce-save-text')
-    text.textContent = label
-    text.title = title
-    this._saveBarEl.querySelector('.mce-save-btn').disabled = !canSaveNow
   }
 
   // ------------------------------------------------------- Annotations ---
@@ -466,66 +417,7 @@ class MdCollabEditor extends HTMLElement {
   _onAnnotationsChanged() {
     this._emit('annotations-change', { annotations: this.getAnnotations() })
     // Tag changes are persisted like text changes (keywords) → save countdown
-    if (this._save.synced) {
-      const now = Date.now()
-      if (!this._save.dirty) this._save.dirtySince = now
-      this._save.dirty = true
-      this._save.lastChange = now
-      this._renderSaveBar()
-    }
-  }
-
-  /** Render the paragraph-role chips (removable) — the block-level counterpart
-   * to the entity chips bar. Reads the roles straight from the document. */
-  _renderRoleChips() {
-    if (!this._rolesEl || !this.editor) return
-    const roles = []
-    this.editor.state.doc.descendants((node, pos) => {
-      if (node.type.name === 'roleBlock') roles.push({ role: node.attrs.role, pos })
-    })
-    this._rolesEl.innerHTML = ''
-    this._rolesEl.style.display = roles.length ? '' : 'none'
-    const editable = this.editor.isEditable
-    for (const r of roles) {
-      const chip = document.createElement('span')
-      chip.className = 'mce-role-chip'
-      const label = document.createElement('button')
-      label.type = 'button'
-      label.className = 'mce-role-chip-label'
-      label.textContent = roleLabel(r.role, this._lang)
-      label.title = t(this._lang, 'roleChip.selectTitle')
-      label.addEventListener('click', () => {
-        this.editor.chain().focus().setTextSelection(r.pos + 1).scrollIntoView().run()
-      })
-      chip.appendChild(label)
-      if (editable) {
-        const del = document.createElement('button')
-        del.type = 'button'
-        del.className = 'mce-role-chip-del'
-        del.textContent = '✕'
-        del.title = t(this._lang, 'roleChip.removeTitle')
-        del.setAttribute('aria-label', t(this._lang, 'roleChip.removeAria', { label: roleLabel(r.role, this._lang) }))
-        del.addEventListener('click', () => {
-          this.editor.chain().focus().setTextSelection(r.pos + 1).unsetRole().run()
-        })
-        chip.appendChild(del)
-      }
-      this._rolesEl.appendChild(chip)
-    }
-    if (editable && roles.length >= 2) {
-      const clear = document.createElement('button')
-      clear.type = 'button'
-      clear.className = 'mce-chips-clear'
-      clear.textContent = t(this._lang, 'roleChip.clearAll')
-      clear.title = t(this._lang, 'roleChip.clearAllTitle')
-      clear.setAttribute('aria-label', t(this._lang, 'roleChip.clearAllTitle'))
-      clear.addEventListener('click', () => {
-        if (window.confirm(t(this._lang, 'roleChip.clearAllConfirm', { count: roles.length }))) {
-          this.editor.chain().focus().unsetAllRoles().run()
-        }
-      })
-      this._rolesEl.appendChild(clear)
-    }
+    this._saveBar.noteChange()
   }
 
   _updateToolbar() {
@@ -533,16 +425,7 @@ class MdCollabEditor extends HTMLElement {
     if (this._tagBtn) {
       this._tagBtn.disabled = !this.editor.isEditable || this.editor.state.selection.empty
     }
-    if (this._roleSelect) {
-      this._roleSelect.disabled = !this.editor.isEditable
-      const slug = this.editor.isActive('roleBlock') ? (this.editor.getAttributes('roleBlock').role || '') : ''
-      // A free role authored outside the catalog: add it so the select can
-      // reflect it instead of falling back to the placeholder
-      if (slug && ![...this._roleSelect.options].some((o) => o.value === slug)) {
-        this._roleSelect.add(new Option(slug, slug))
-      }
-      this._roleSelect.value = slug
-    }
+    this._roles.syncSelect()
     const inTable = this.editor.isActive('table')
     for (const { btn, tool } of this._buttons) {
       if (tool.active) {

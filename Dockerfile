@@ -1,14 +1,26 @@
 # Collaborative markdown editor for edu-sharing — all-in-one deployment
 # (frontend + collab server in one container).
-FROM node:22-alpine
+# Multi-stage (audit D-1): the build stage needs devDependencies (esbuild),
+# the final image installs runtime deps only.
+FROM node:22-alpine AS build
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
-COPY server.js ./
-COPY server ./server
 COPY src ./src
 COPY public ./public
 RUN npm run build
+
+FROM node:22-alpine
+WORKDIR /app
+ENV NODE_ENV=production
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev
+COPY server.js ./
+COPY server ./server
+# src stays in the image: the server imports shared modules from it
+# (markdown/extensions/entity-types) at runtime
+COPY src ./src
+COPY --from=build /app/public ./public
 ENV PORT=3000
 EXPOSE 3000
 # Run as the unprivileged built-in "node" user, not root (audit D-01)

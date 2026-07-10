@@ -162,7 +162,14 @@ function openDocument(nodeId, field) {
       connected: t(lang, 'host.connConnected'),
       connecting: t(lang, 'host.connConnecting'),
       disconnected: t(lang, 'host.connDisconnected'),
+      'session-expired': t(lang, 'host.connSessionExpired'),
     }[s] || s
+    // Expired/revoked session: drop the dead local token so the login box
+    // reappears instead of silently retrying with it on the next document
+    if (s === 'session-expired') {
+      session.clear()
+      updateLoginBox()
+    }
   })
 
   // Real-time save state from the server broadcast — replaces fast polling (P-01)

@@ -83,6 +83,7 @@ Optional `.env` anlegen (Vorlage: [.env.example](.env.example)):
 | `PORT` | `3000` | HTTP- und WebSocket-Port |
 | `SAVE_DEBOUNCE_MS` | `15000` | Repo-Write frühestens X ms nach der letzten Änderung |
 | `SAVE_MAX_DEBOUNCE_MS` | `90000` | bei Dauertippen spätestens alle X ms |
+| `SAVE_RETRY_MS` | `30000` | Wartezeit vor dem Neuversuch nach einem Write-Fehler |
 | `EDU_TIMEOUT_MS` | `15000` | Timeout je edu-sharing-REST-Aufruf |
 | `LOGIN_RATE_MAX` | `10` | max. Login-Versuche je IP im Fenster |
 | `LOGIN_RATE_WINDOW_MS` | `300000` | Fensterlänge fürs Login-Rate-Limit |
@@ -94,6 +95,7 @@ Optional `.env` anlegen (Vorlage: [.env.example](.env.example)):
 | `AI_MODEL` | `gpt-5.4-mini` | Chat-Modell auf dem B-API-OpenAI-Passthrough |
 | `AI_BASE_URL` | abgeleitet | OpenAI-kompatible Base-URL; Default aus dem Repo-Host abgeleitet (`repository.X` → `b-api.X/api/v1/llm/openai`) |
 | `AI_TIMEOUT_MS` | `90000` | Timeout je Modell-Aufruf |
+| `AI_COOLDOWN_MS` | `30000` | Wartezeit je Dokument zwischen KI-Läufen (Kostenbremse, 0 = aus) |
 
 ### KI-Verschlagwortung (🤖)
 
@@ -107,9 +109,10 @@ wieder. Alle KI-Vorschläge durchlaufen dieselbe Validierung wie menschliche
 Eingaben (halluzinierte Zitate, Kreuzungen, Duplikate und Nicht-Katalog-Rollen
 werden verworfen). Der API-Key bleibt ausschließlich auf dem Server; der
 Auslöser braucht eine Schreibverbindung (serverseitig erzwungen und getestet).
-Pro Dokument läuft höchstens ein KI-Lauf gleichzeitig; schlägt der Modell-Call
-fehl, wird das sofort angezeigt — erneut klicken ist der Retry (bewusst kein
-automatischer). Implementierung gekapselt in
+Pro Dokument läuft höchstens ein KI-Lauf gleichzeitig, und zwischen zwei
+Läufen gilt eine kurze Wartezeit als Kostenbremse (`AI_COOLDOWN_MS`, Default
+30 s); schlägt der Modell-Call fehl, wird das sofort angezeigt — erneut
+klicken ist der Retry (bewusst kein automatischer). Implementierung gekapselt in
 [server/ai-tagging.js](server/ai-tagging.js).
 
 ## Demo testen (mehrere Benutzer)
@@ -134,9 +137,12 @@ Security-Guards, Session-Store, eine API-Integration, die den echten Server
 gegen ein Mock-Repo fährt, i18n-Schlüssel-Parität (de/en), die Annotations-UI
 (Dialoge inkl. Fokus-Management, jsdom), zwei Server-Integrationssuiten
 gegen ein gestubbtes Repo (Yjs-Reconnect ohne Duplikate, Keyword-Lifecycle:
-bestehende Schlagwörter überleben Entitäts-Änderungen) sowie die
+bestehende Schlagwörter überleben Entitäts-Änderungen), die
 KI-Verschlagwortung gegen ein gestubbtes Modell (Validierung, Read-only-Gate,
-Busy-Lock, veraltete Vorschläge bei parallelen Edits).
+Busy-Lock, Cooldown, veraltete Vorschläge bei parallelen Edits) sowie die
+Web Component selbst in einem jsdom-Harness (echter TipTap-Editor, Netz am
+WebSocket gestubbt: Toolbar, Save-Bar-Zustände, Rollen-Chips,
+Read-only-Umschaltung, session-expired).
 
 ## Web Component einbinden
 
@@ -162,10 +168,10 @@ Styles liegen in [public/style.css](public/style.css) (Abschnitte `mce-*` und
 |---|---|---|
 | `editor-ready` | `{editor}` | TipTap-Instanz verfügbar |
 | `markdown-change` | `{markdown}` | aktueller Stand als Markdown (1 s debounced) |
-| `status-change` | `{status}` | `connecting` / `connected` / `disconnected` |
+| `status-change` | `{status}` | `connecting` / `connected` / `disconnected` / `session-expired` (Sitzung abgelaufen oder anderswo abgemeldet — neu anmelden) |
 | `users-change` | `{users:[{name,color,isSelf,active}]}` | Presence inkl. „tippt gerade" |
 | `save-state-change` | `{dirty, saving, lastSavedAt, …}` | Speicherzustand (Server-Broadcast) |
-| `annotations-change` | `{annotations:[{id,quote,occurrence,type,entityId,start,end}]}` | semantische Tags (Standoff, Offsets gegen das aktuelle Markdown) |
+| `annotations-change` | `{annotations:[{id,quote,occurrence,type,entityId,start,end}]}` | semantische Tags (Standoff, Offsets gegen den Plain-Text des Editors) |
 | `synced` | `{}` | initiale Synchronisation abgeschlossen |
 
 Methoden: `getMarkdown(): string`, `getAnnotations()`,
@@ -254,7 +260,7 @@ Keyword-Roundtrip) steht in
 - **KI-Anbindung:** `addAnnotation({quote, type})` nimmt KI-Ausgaben im
   Zitat-plus-Typ-Format entgegen (nicht auffindbare Zitate werden mit
   Fehlermeldung abgelehnt — eingebaute Halluzinations-Prüfung);
-  `getAnnotations()` exportiert Zitat, Stelle (Start/Ende im Markdown) und Typ.
+  `getAnnotations()` exportiert Zitat, Stelle (Start/Ende im Plain-Text) und Typ.
 - **Grenzen (Demo-Stand):** `entityId` lebt nur im Yjs-Dokument (Keywords
   tragen Name+Typ); wird das Zitat aus dem Text gelöscht, erscheint das Tag
   als „verwaist" in der Leiste und bleibt als Keyword erhalten, bis es
@@ -359,6 +365,7 @@ server/ai-tagging.js       KI-Verschlagwortung (B-API, gekapselt; 🤖-Button)
 src/md-collab-editor.js    Web Component
 src/toolbar.js             Toolbar-Definition
 src/save-state.js          Save-Bar-Logik (pur, getestet)
+src/save-bar.js            Save-Bar-Controller (DOM, Server-Events, Ticker)
 src/annotations.js         Semantisches Tagging — pure Logik (pur, getestet)
 src/entity-types.js        Default-Katalog der Entitätstypen (pur, getestet)
 src/annotation-extension.js Tag-Anzeige als ProseMirror-Decorations

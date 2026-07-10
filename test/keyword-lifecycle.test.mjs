@@ -25,13 +25,21 @@ function check(name, ok, extra = '') {
 // --- stateful mock edu-sharing node -------------------------------------------
 // Compendium text anchors "Weimar" + "Kartoffel"; the DESCRIPTION field
 // anchors "Merkur" (cross-field entity). "Pluto" is anchored NOWHERE.
-const MARKDOWN = '# Kartoffel\n\nDie Kartoffel wurde in Weimar untersucht.'
+// Two anchor traps (audit KW-1) are baked into the text: a quote spanning a
+// BOLD boundary ("Kartoffelhof Sonnental" with only "Kartoffelhof" bold) and
+// a plain term that turndown ESCAPES in markdown ("snake_case_name" →
+// "snake\_case\_name"). Both are anchored in the PLAIN text and must survive
+// every save — the old markdown-source anchor check silently dropped them.
+const MARKDOWN = '# Kartoffel\n\nDie Kartoffel wurde in Weimar untersucht.\n\nDer **Kartoffelhof** Sonnental liegt bei Erfurt.\n\nDie Variable snake_case_name ist wichtig.'
 const nodeProps = {
   'ccm:oeh_collection_compendium_text': [MARKDOWN],
   'cm:description': ['Merkur ist der innerste Planet.'],
   // Repo order deliberately interleaves plain and entity keywords: a pure
   // reordering must never count as a keyword change (spurious writes).
-  'cclom:general_keyword': ['Optik', 'Weimar (Stadt)', 'Mechanik', 'Merkur (Planet)', 'Pluto (Planet)'],
+  'cclom:general_keyword': [
+    'Optik', 'Weimar (Stadt)', 'Mechanik', 'Merkur (Planet)', 'Pluto (Planet)',
+    'Kartoffelhof Sonnental (Ort)', 'snake_case_name (Fachbegriff)',
+  ],
 }
 const propertyWrites = [] // {property, values}
 
@@ -73,7 +81,7 @@ const quotes = () => annotations.toArray().map((a) => a.quote).sort()
 const lastKeywordWrite = () => propertyWrites.filter((w) => w.property === 'cclom:general_keyword').at(-1)
 
 check('load: every pattern keyword becomes a pill (anchored or orphan)',
-  JSON.stringify(quotes()) === JSON.stringify(['Merkur', 'Pluto', 'Weimar']), quotes())
+  JSON.stringify(quotes()) === JSON.stringify(['Kartoffelhof Sonnental', 'Merkur', 'Pluto', 'Weimar', 'snake_case_name']), quotes())
 
 // --- 1) first save: stale entity is auto-removed, cross-field entity survives --
 await persistDocument(documentName, serverDoc, true)
@@ -82,9 +90,14 @@ await persistDocument(documentName, serverDoc, true)
   check('cleanup save: plain keywords survive', kw.values.includes('Optik') && kw.values.includes('Mechanik'), kw.values)
   check('cleanup save: anchored entity survives (Weimar in compendium)', kw.values.includes('Weimar (Stadt)'), kw.values)
   check('cleanup save: CROSS-FIELD entity survives (Merkur in description)', kw.values.includes('Merkur (Planet)'), kw.values)
+  // KW-1 regressions: anchoring must run against PLAIN text, not markdown source
+  check('KW-1: quote spanning a BOLD boundary survives the save',
+    kw.values.includes('Kartoffelhof Sonnental (Ort)'), kw.values)
+  check('KW-1: quote with markdown-escaped chars (snake_case_name) survives the save',
+    kw.values.includes('snake_case_name (Fachbegriff)'), kw.values)
   check('cleanup save: entity anchored NOWHERE is auto-removed (Pluto)', !kw.values.includes('Pluto (Planet)'), kw.values)
-  check('cleanup save: Pluto pill pruned, cross-field orphan pill kept',
-    JSON.stringify(quotes()) === JSON.stringify(['Merkur', 'Weimar']), quotes())
+  check('cleanup save: only the Pluto pill is pruned',
+    JSON.stringify(quotes()) === JSON.stringify(['Kartoffelhof Sonnental', 'Merkur', 'Weimar', 'snake_case_name']), quotes())
 }
 
 // --- 2) save again without changes: pure no-op ---------------------------------
@@ -100,16 +113,16 @@ await persistDocument(documentName, serverDoc, true)
 // deleting the passage after tagging): the save must drop keyword + pill.
 annotations.push([
   { id: 't1', quote: 'Kartoffel', occurrence: 1, type: 'Thema' },   // anchored → stays
-  { id: 't2', quote: 'Sonnental', occurrence: 1, type: 'Ort' },     // anchored nowhere → auto-removed
+  { id: 't2', quote: 'Mondbasis', occurrence: 1, type: 'Ort' },     // anchored nowhere → auto-removed
 ])
 await persistDocument(documentName, serverDoc, true)
 {
   const kw = lastKeywordWrite()
   check('tag + save: anchored new entity written', kw.values.includes('Kartoffel (Thema)'), kw.values)
   check('tag + save: unanchored tag NOT written (semantic statement would be false)',
-    !kw.values.includes('Sonnental (Ort)'), kw.values)
+    !kw.values.includes('Mondbasis (Ort)'), kw.values)
   check('tag + save: unanchored pill pruned automatically',
-    JSON.stringify(quotes()) === JSON.stringify(['Kartoffel', 'Merkur', 'Weimar']), quotes())
+    JSON.stringify(quotes()) === JSON.stringify(['Kartoffel', 'Kartoffelhof Sonnental', 'Merkur', 'Weimar', 'snake_case_name']), quotes())
 }
 
 // --- 4) unload + reload + "alle Pillen löschen" ---------------------------------
@@ -119,8 +132,9 @@ const doc2 = new Y.Doc()
 const ret2 = await cfg.onLoadDocument({ documentName, document: doc2 })
 const serverDoc2 = ret2 instanceof Y.Doc ? ret2 : doc2
 const annotations2 = serverDoc2.getArray('annotations')
-check('reload: pills = the three surviving entities',
-  annotations2.toArray().map((a) => a.quote).sort().join(',') === 'Kartoffel,Merkur,Weimar')
+check('reload: all surviving entities are pills again',
+  annotations2.toArray().map((a) => a.quote).sort().join(',')
+    === 'Kartoffel,Kartoffelhof Sonnental,Merkur,Weimar,snake_case_name')
 
 serverDoc2.transact(() => annotations2.delete(0, annotations2.length)) // „alle ✕"
 await persistDocument(documentName, serverDoc2, true)
@@ -132,5 +146,33 @@ const before = propertyWrites.length
 await persistDocument(documentName, serverDoc2, true)
 check('save without changes afterwards: still a no-op', propertyWrites.length === before,
   propertyWrites.slice(before))
+
+// --- 5) L-2: the server prune must not schedule a follow-up store cycle ----------
+// The prune transaction runs with hocuspocus' skip-store LocalTransactionOrigin,
+// and onChange must not re-mark the document dirty for it — otherwise every
+// pruning save is followed by a pointless noop-save 15 s later.
+{
+  const { shouldSkipStoreHooks } = await import('@hocuspocus/server')
+  const { pruneUnanchoredAnnotations } = await import('../server/keyword-sync.js')
+  const { docState } = await import('../server/collab.js')
+
+  const pruneDoc = new Y.Doc()
+  pruneDoc.getArray('annotations').push([{ id: 'x', quote: 'nirgends', occurrence: 1, type: 'Ort' }])
+  let seenOrigin = 'no-update-fired'
+  pruneDoc.on('update', (_u, origin) => { seenOrigin = origin })
+  const pruned = pruneUnanchoredAnnotations(pruneDoc, 'ganz anderer text')
+  check('prune removes the unanchored pill', pruned === 1)
+  check('prune transaction carries a skip-store origin (no follow-up store cycle)',
+    shouldSkipStoreHooks(seenOrigin), seenOrigin)
+
+  docState.set('origin-doc', { dirty: false })
+  await cfg.onChange({ documentName: 'origin-doc', transactionOrigin: seenOrigin })
+  check('onChange ignores the prune origin (stays clean)',
+    docState.get('origin-doc').dirty === false, docState.get('origin-doc'))
+  await cfg.onChange({ documentName: 'origin-doc', transactionOrigin: { source: 'connection' } })
+  check('onChange still marks user edits dirty',
+    docState.get('origin-doc').dirty === true, docState.get('origin-doc'))
+  docState.delete('origin-doc')
+}
 
 process.exit(fail ? 1 : 0)

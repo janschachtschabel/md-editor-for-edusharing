@@ -11,9 +11,9 @@ Ebene-1-Typen als Block-Rollen").
 | Geteiltes Vokabular + `roleSlug`/`roleLabel` (Ebene 1 → Rollen, Ebene 2 → Entitäten) | [src/entity-types.js](../src/entity-types.js) |
 | TipTap-Node `roleBlock` (`:::`-Container, Befehle `setRole`/`unsetRole`) | [src/role-block.js](../src/role-block.js) |
 | Markdown-Roundtrip (marked-Tokenizer + Turndown-Regel) | [src/markdown.js](../src/markdown.js) |
-| Rollen-Auswahl in der Toolbar (`<select>`) | [src/md-collab-editor.js](../src/md-collab-editor.js) |
+| Rollen-Auswahl in der Toolbar (`<select>`) + Rollen-Chips-Leiste | [src/role-ui.js](../src/role-ui.js) (Verdrahtung: [src/md-collab-editor.js](../src/md-collab-editor.js)) |
 | Editor-Styling (Container + Label-Chip) | [public/style.css](../public/style.css) |
-| Tests: Roundtrip `:::`, Katalog-Split, `roleSlug`/`roleLabel` | `test/roundtrip.test.mjs`, `test/entity-types.test.mjs` |
+| Tests: Roundtrip `:::`, Katalog-Split, `roleSlug`/`roleLabel`, Select/Chips im jsdom-Harness | `test/roundtrip.test.mjs`, `test/entity-types.test.mjs`, `test/component.test.mjs` |
 
 Rollen erreichen `cclom:general_keyword` **per Konstruktion** nie — sie stehen im
 Markdown (Compendium-Property), Entitäten laufen weiter über den Standoff→Keyword-Pfad.
@@ -31,7 +31,9 @@ Markdown (Compendium-Property), Entitäten laufen weiter über den Standoff→Ke
 - **Rollen-Pillen:** Alle Absatzrollen erscheinen als **amberfarbene Chips** in
   einer eigenen Leiste unter der Toolbar (getrennt von den blauen Entitäten-
   Chips). Klick auf einen Chip springt zur Stelle, das ✕ entfernt die Rolle
-  an Ort und Stelle (löst nur diesen Wrapper auf, un-nested nicht).
+  an Ort und Stelle (löst nur diesen Wrapper auf, un-nested nicht); **„alle ✕"**
+  (ab 2 Rollen, mit Rückfrage) entfernt sämtliche Rollen des Dokuments auf
+  einmal — der Inhalt bleibt unverändert.
 
 ---
 

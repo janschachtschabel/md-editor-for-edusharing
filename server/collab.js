@@ -13,7 +13,7 @@ import { TiptapTransformer } from '@hocuspocus/transformer'
 import { generateHTML, generateJSON } from '@tiptap/html'
 import * as Y from 'yjs'
 import { createExtensions } from '../src/extensions.js'
-import { markdownToHtml, htmlToMarkdown } from '../src/markdown.js'
+import { markdownToHtml, htmlToMarkdown, markdownToPlainText } from '../src/markdown.js'
 import {
   ALLOW_ANONYMOUS_EDIT, ENV_AUTH,
   SAVE_DEBOUNCE_MS, SAVE_MAX_DEBOUNCE_MS, SAVE_RETRY_MS,
@@ -22,9 +22,12 @@ import {
   getNodeInfo, loadMarkdown, saveKeywords, saveMarkdown, parseDocumentName,
 } from './edu-sharing-api.js'
 import {
-  findQuoteRange, keywordsToAnnotations, mergeKeywords, preservedKeywords, serializeEntityKeywords,
+  keywordsToAnnotations, mergeKeywords, preservedKeywords, serializeEntityKeywords,
 } from '../src/annotations.js'
-import { resolveAuthToken } from './sessions.js'
+import { anchoredAnnotations, pruneUnanchoredAnnotations, PRUNE_ORIGIN } from './keyword-sync.js'
+import {
+  registerSessionConnection, resolveAuthToken, unregisterSessionConnection,
+} from './sessions.js'
 import { aiConfigured, runAiTagging } from './ai-tagging.js'
 
 const extensions = createExtensions()
@@ -76,29 +79,6 @@ export function resolveAuth(documentName) {
   return docAuth.get(documentName) ?? ENV_AUTH ?? null
 }
 
-/**
- * Live WebSocket connections per session token, so that a logout can
- * terminate the session EVERYWHERE — without this, a second tab/device using
- * the same session kept its connection (presence + write access) until the
- * tab was closed, even though the token had been revoked.
- */
-const sessionConnections = new Map() // token → Map<socketId, connection>
-
-/** Close every open collaboration connection of a (just revoked) session. */
-export function closeSessionConnections(token) {
-  const conns = sessionConnections.get(token)
-  if (!conns) return 0
-  sessionConnections.delete(token)
-  let closed = 0
-  for (const connection of conns.values()) {
-    try {
-      connection.close({ code: 4403, reason: 'Session beendet (Logout)' })
-      closed++
-    } catch { /* already gone */ }
-  }
-  if (closed) console.log(`[auth] logout closed ${closed} open connection(s) of the session`)
-  return closed
-}
 
 // --------------------------------------------------- Markdown ⇄ Yjs doc ---
 function markdownToYdoc(markdown) {
@@ -177,15 +157,12 @@ export async function persistDocument(documentName, document, manual = false) {
     return
   }
   // Entity annotations (shared Y.Array) → general keywords "Name (Typ)".
-  // Entities are SEMANTIC STATEMENTS about the node's texts: only annotations
-  // whose quote is anchored in the textbase (this document's text OR the
-  // node's other field — both share one keyword list) are written; stale
-  // ones would falsify the statement and are dropped (and pruned below).
-  // Plain editorial keywords (state.preservedKeywords) pass through unchanged.
-  const textbase = `${markdown}\n${state.otherText || ''}`
-  const anchored = document.getArray('annotations').toArray()
-    .filter((a) => findQuoteRange(textbase, a.quote))
-  const entityKeywords = serializeEntityKeywords(anchored)
+  // Only annotations anchored in the node's textbase (this document's text OR
+  // the node's other field — both share one keyword list) are written; plain
+  // editorial keywords (state.preservedKeywords) pass through unchanged.
+  // Semantics + plain-text anchoring rationale: server/keyword-sync.js.
+  const textbase = `${markdownToPlainText(markdown)}\n${state.otherPlain || ''}`
+  const entityKeywords = serializeEntityKeywords(anchoredAnnotations(document, textbase))
   const keywords = mergeKeywords(state.preservedKeywords, entityKeywords)
   const markdownChanged = markdown !== state.lastSavedMarkdown
   // Unordered compare: merging moves entity keywords to the end, so the list
@@ -217,23 +194,16 @@ export async function persistDocument(documentName, document, manual = false) {
     }
     // Refresh the other field's text from the read-back (it may have been
     // edited in ITS collab session meanwhile), then prune annotations that
-    // are anchored NOWHERE — their keyword was just dropped, a lingering
-    // pill would falsify the semantic statement. Re-checked against the
-    // LIVE doc text so a quote restored (undo) during the save keeps its pill.
-    state.otherText = (state.mode === 'description' ? verify.compendium : verify.description) || ''
-    const liveText = `${ydocToMarkdown(document)}\n${state.otherText}`
-    const arr = document.getArray('annotations')
-    const stale = arr.toArray()
-      .map((a, i) => ({ i, anchored: Boolean(findQuoteRange(liveText, a.quote)) }))
-      .filter((x) => !x.anchored)
-    if (stale.length) {
-      document.transact(() => {
-        for (let k = stale.length - 1; k >= 0; k--) arr.delete(stale[k].i, 1)
-      })
+    // are anchored nowhere (details: server/keyword-sync.js).
+    state.otherPlain = markdownToPlainText(
+      (state.mode === 'description' ? verify.compendium : verify.description) || '')
+    const liveText = `${markdownToPlainText(ydocToMarkdown(document))}\n${state.otherPlain}`
+    const pruned = pruneUnanchoredAnnotations(document, liveText)
+    if (pruned) {
       // Refresh the reconnect snapshot — it was taken BEFORE the prune and
       // would otherwise resurrect the pruned pills on the next load.
       rememberSnapshot(documentName, document, markdown)
-      console.log(`[save] ${documentName}: pruned ${stale.length} unanchored entity pill(s)`)
+      console.log(`[save] ${documentName}: pruned ${pruned} unanchored entity pill(s)`)
     }
     state.lastSavedMarkdown = markdown
     state.lastSavedKeywords = keywords
@@ -310,23 +280,12 @@ export const hocuspocus = new Hocuspocus({
 
   /** Register the live connection under its session token (logout kill list). */
   async connected({ connection, context, socketId }) {
-    const token = context?.sessionToken
-    if (!token) return
-    let conns = sessionConnections.get(token)
-    if (!conns) {
-      conns = new Map()
-      sessionConnections.set(token, conns)
-    }
-    conns.set(socketId, connection)
+    if (context?.sessionToken) registerSessionConnection(context.sessionToken, socketId, connection)
   },
 
   /** Unregister on normal disconnect so the registry cannot grow stale. */
   async onDisconnect({ context, socketId }) {
-    const token = context?.sessionToken
-    const conns = token ? sessionConnections.get(token) : undefined
-    if (!conns) return
-    conns.delete(socketId)
-    if (!conns.size) sessionConnections.delete(token)
+    if (context?.sessionToken) unregisterSessionConnection(context.sessionToken, socketId)
   },
 
   async onLoadDocument({ documentName, document }) {
@@ -350,11 +309,13 @@ export const hocuspocus = new Hocuspocus({
       lastSavedMarkdown: markdown, // baseline for change detection
       lastSavedKeywords: info.keywords || [], // full baseline (change detection)
       preservedKeywords: preservedKeywords(info.keywords || [], consumed), // plain (editorial) keywords, fixed for the session
-      // Text of the node's OTHER field (compendium ↔ description): entity
-      // keywords are statements about the node's texts, and both fields share
-      // ONE keyword list — anchoring is therefore checked against BOTH texts
-      // on save. Refreshed from every read-back.
-      otherText: (info.mode === 'description' ? info.compendium : info.description) || '',
+      // PLAIN text of the node's OTHER field (compendium ↔ description):
+      // entity keywords are statements about the node's texts, and both
+      // fields share ONE keyword list — anchoring is therefore checked
+      // against BOTH texts on save (always as plain text, audit KW-1).
+      // Refreshed from every read-back.
+      otherPlain: markdownToPlainText(
+        (info.mode === 'description' ? info.compendium : info.description) || ''),
       lastSavedAt: null,
       lastChangedAt: null,
       lastError: null,
@@ -389,7 +350,10 @@ export const hocuspocus = new Hocuspocus({
   },
 
   /** Fires on every change (no debounce) — only maintains the buffer state. */
-  async onChange({ documentName }) {
+  async onChange({ documentName, transactionOrigin }) {
+    // The post-save prune is not an edit — it must not re-dirty the document
+    // (audit L-2; its store cycle is skipped via PRUNE_ORIGIN.skipStoreHooks)
+    if (transactionOrigin === PRUNE_ORIGIN) return
     const state = docState.get(documentName)
     if (state) {
       state.dirty = true

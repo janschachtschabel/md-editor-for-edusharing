@@ -150,6 +150,7 @@ verlustfrei in Markdown (GFM) abbildbar sein**.
 | **`<md-collab-editor>`** Web Component | [`src/md-collab-editor.js`](../src/md-collab-editor.js) | TipTap ist headless — Toolbar, Presence-Chips, Save-Bar, Tastaturnavigation, ARIA gibt es dort nicht |
 | **Toolbar-Definition** | [`src/toolbar.js`](../src/toolbar.js) | Symbol-Buttons + Tabellen-Kontextaktionen |
 | **Save-Bar-Logik** (pur, getestet) | [`src/save-state.js`](../src/save-state.js) | LED-Zustand + Countdown-Berechnung |
+| **Save-Bar-Controller** | [`src/save-bar.js`](../src/save-bar.js) | DOM, Speichern-Button, Server-Events (`config`/`saved`/`save-error`), Countdown-Ticker |
 | **Markdown-Regelwerk** | [`src/markdown.js`](../src/markdown.js) | verlustfreier Roundtrip: Task-Listen, Tabellen-`colgroup`-Fix, kompakte Zellen/Listen, Sup/Sub, Strike |
 | **edu-sharing-API-Client** | [`server/edu-sharing-api.js`](../server/edu-sharing-api.js) | Lesen/Schreiben, `setProperty`-Umweg, Access-Check, Read-Back |
 | **Persistenz-Regelung** | [`server/collab.js`](../server/collab.js) | Puffer-Strategie, Änderungserkennung, Retry, Status-Broadcast |
@@ -404,7 +405,7 @@ kennt edu-sharing nicht, spricht nur mit dem Collab-Server. Ein einzelnes Bundle
 |---|---|---|
 | `editor-ready` | `{editor}` | TipTap-Instanz verfügbar |
 | `markdown-change` | `{markdown}` | aktueller Stand als Markdown (1 s debounced) |
-| `status-change` | `{status}` | `connecting`/`connected`/`disconnected` |
+| `status-change` | `{status}` | `connecting`/`connected`/`disconnected`/`session-expired` |
 | `users-change` | `{users:[{name,color,isSelf,active}]}` | Presence inkl. „tippt gerade" |
 | `save-state-change` | `{dirty,saving,lastSavedAt,…}` | Speicherzustand (Server-Broadcast) |
 | `synced` | `{}` | initiale Synchronisation fertig |
@@ -577,6 +578,7 @@ src/role-block.js          TipTap-Node für Absatzrollen (:::-Container)
 src/presence.js            Presence-Tracker (Awareness → Chips)
 src/toolbar.js             Toolbar-Definition (Symbol-Buttons + Tabellen-Aktionen)
 src/save-state.js          Save-Bar-Logik (pur, getestet)
+src/save-bar.js            Save-Bar-Controller (DOM, Server-Events, Ticker)
 src/annotations.js         Semantisches Tagging — pure Logik (pur, getestet)
 src/entity-types.js        Default-Typkatalog (2 Ebenen, pur, getestet)
 src/annotation-extension.js Decorations + Text-Index (Offset ⇄ PM-Position)

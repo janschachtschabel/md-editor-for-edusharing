@@ -1,13 +1,17 @@
 /**
- * Markdown ⇄ HTML conversion (runs in Node AND in the browser).
+ * Markdown ⇄ HTML conversion + plain-text extraction (runs in Node AND in
+ * the browser).
  *
- * Markdown → HTML: marked (GFM) + postprocessing for TipTap task lists
- * HTML → Markdown: turndown + GFM plugin (tables, strikethrough) + custom
- *                  rules for task items, sup/sub (inline HTML) and tight lists
+ * Markdown → HTML:  marked (GFM) + postprocessing for TipTap task lists
+ * HTML → Markdown:  turndown + GFM plugin (tables, strikethrough) + custom
+ *                   rules for task items, sup/sub (inline HTML) and tight lists
+ * Markdown → plain: markdownToPlainText — the anchor text for entity tags
  */
 import { marked } from 'marked'
 import TurndownService from 'turndown'
 import { gfm } from 'turndown-plugin-gfm'
+import { generateJSON } from '@tiptap/html'
+import { createExtensions } from './extensions.js'
 
 // ------------------------------------------------------- Markdown → HTML ---
 // Fenced-div extension for didactic paragraph roles:  ::: role \n …blocks… \n :::
@@ -76,6 +80,33 @@ function fixTaskListsForTiptap(html) {
 export function markdownToHtml(markdown) {
   const html = marked.parse(markdown || '', { async: false })
   return fixTaskListsForTiptap(html) || '<p></p>'
+}
+
+// ------------------------------------------------- Markdown → plain text ---
+// Quote anchoring (entity tags) must run against the PLAIN text — the same
+// text the editor's decorations/pills anchor against — NEVER against the
+// markdown source: formatting splits a quote into `**bold** rest` and
+// turndown escapes plain terms (`snake_case_name` → `snake\_case\_name`),
+// so substring search on markdown silently loses valid anchors (audit KW-1).
+// Parsed through the real editor schema (generateJSON) so the result matches
+// the client's text index exactly; textblocks are joined with '\n' so quotes
+// cannot falsely match across block boundaries.
+const plainExtensions = createExtensions()
+
+function collectTextblocks(node, blocks) {
+  if (!node?.content) return
+  if (node.content.some((c) => c.type === 'text')) {
+    blocks.push(node.content.map((c) => (c.type === 'text' ? c.text || '' : '')).join(''))
+    return
+  }
+  for (const child of node.content) collectTextblocks(child, blocks)
+}
+
+export function markdownToPlainText(markdown) {
+  if (!markdown) return ''
+  const blocks = []
+  collectTextblocks(generateJSON(markdownToHtml(markdown), plainExtensions), blocks)
+  return blocks.join('\n')
 }
 
 // ------------------------------------------------------- HTML → Markdown ---

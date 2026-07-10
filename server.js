@@ -24,12 +24,12 @@ import {
   buildDocumentName, checkWriteAccess, getNodeInfo, normalizeField, validateLogin,
 } from './server/edu-sharing-api.js'
 import {
-  broadcastConfig, closeSessionConnections, docState, hocuspocus, persistDocument,
+  broadcastConfig, docState, hocuspocus, persistDocument,
 } from './server/collab.js'
 import {
   createRateLimiter, isBasicAuthPassthrough, isOriginAllowed, isValidNodeId,
 } from './server/guards.js'
-import { resolveAuthToken, sessionStore } from './server/sessions.js'
+import { closeSessionConnections, resolveAuthToken, sessionStore } from './server/sessions.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 

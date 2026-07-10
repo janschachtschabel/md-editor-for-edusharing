@@ -26,7 +26,7 @@ export const PORT = Number(process.env.PORT || 3000)
  */
 export const SAVE_DEBOUNCE_MS = Number(process.env.SAVE_DEBOUNCE_MS || 15000)
 export const SAVE_MAX_DEBOUNCE_MS = Number(process.env.SAVE_MAX_DEBOUNCE_MS || 90000)
-export const SAVE_RETRY_MS = 30000
+export const SAVE_RETRY_MS = Number(process.env.SAVE_RETRY_MS || 30000)
 
 /** Timeout for every edu-sharing REST call (audit F-07). */
 export const EDU_TIMEOUT_MS = Number(process.env.EDU_TIMEOUT_MS || 15000)
@@ -66,8 +66,8 @@ export const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || '')
  * API key for the WLO B-API (OpenAI passthrough). Follows the WLO convention:
  * the key lives in the OS user environment (B_API_KEY / B_API_KEY_STAGING),
  * NOT in .env — AI_API_KEY exists as an explicit override for deployments.
- * `|| undefined` guards the docker-compose footgun where `${VAR:-}` passes
- * variables through as SET-but-EMPTY strings.
+ * The `||` fallback chain (ending in null) guards the docker-compose footgun
+ * where `${VAR:-}` passes variables through as SET-but-EMPTY strings.
  */
 export const AI_API_KEY = process.env.AI_API_KEY || process.env.B_API_KEY
   || process.env.B_API_KEY_STAGING || null
@@ -85,3 +85,9 @@ export const AI_BASE_URL = process.env.AI_BASE_URL
 
 /** Timeout for a single model call (tagging a long text takes a while). */
 export const AI_TIMEOUT_MS = Number(process.env.AI_TIMEOUT_MS || 90000)
+
+/**
+ * Cooldown per document between completed AI-tagging runs (audit P-1) —
+ * without it any write-capable user can drive model costs freely. 0 = off.
+ */
+export const AI_COOLDOWN_MS = Number(process.env.AI_COOLDOWN_MS || 30000)

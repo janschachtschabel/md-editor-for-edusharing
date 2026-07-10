@@ -217,6 +217,8 @@ button.linkish {
 #conn[data-state="connected"]::before { content: "● "; color: #30a46c; }
 #conn[data-state="connecting"]::before { content: "● "; color: #f5a623; }
 #conn[data-state="disconnected"]::before { content: "● "; color: #e5484d; }
+#conn[data-state="session-expired"] { color: #ce2c31; font-weight: 600; }
+#conn[data-state="session-expired"]::before { content: "● "; color: #e5484d; }
 
 #save-state { margin: .4rem 0 0; font-size: .76rem; line-height: 1.45; }
 /* Respect the user's motion preference: no blinking/pulsing (WCAG 2.3.3) */

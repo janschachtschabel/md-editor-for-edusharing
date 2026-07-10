@@ -90,7 +90,7 @@ check('reloaded server doc equals the first load (same Yjs state)',
 // using the same session token stayed connected (and could reconnect, since
 // invalid tokens were silently downgraded to read-only instead of rejected).
 {
-  const { closeSessionConnections } = await import('../server/collab.js')
+  const { closeSessionConnections } = await import('../server/sessions.js')
 
   // (a) presenting an INVALID (non-anonymous) token must be rejected outright
   let rejected = false
