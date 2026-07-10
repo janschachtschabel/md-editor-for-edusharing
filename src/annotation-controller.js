@@ -109,6 +109,9 @@ export class AnnotationController {
       canEdit: editor.isEditable,
       onSelect: (a) => this._select(a),
       onDelete: (id) => this._delete(id),
+      onClearAll: (count) => {
+        if (window.confirm(t(this.getLang(), 'chips.clearAllConfirm', { count }))) this.clearAll()
+      },
       lang: this.getLang(),
     })
   }
@@ -152,6 +155,11 @@ export class AnnotationController {
   _delete(id) {
     const i = this.raw().findIndex((a) => a.id === id)
     if (i !== -1) this.annotations.delete(i, 1)
+  }
+
+  /** "Alle Pillen löschen": drop every annotation in one shot (chips-bar button). */
+  clearAll() {
+    if (this.annotations.length) this.annotations.delete(0, this.annotations.length)
   }
 
   /** Chip click: select and scroll to the tagged text. */

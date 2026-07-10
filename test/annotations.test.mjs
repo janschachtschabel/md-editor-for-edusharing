@@ -65,20 +65,24 @@ check('identical ranges are allowed', isCrossing(inst, { ...inst }) === false)
 check('disjoint ranges are allowed', isCrossing({ start: 0, end: 5 }, { start: 10, end: 12 }) === false)
 
 // --- keywords → annotations (load path) ---------------------------------------
-// Only a parenthesized keyword whose quote is VERBATIM in the text is "consumed"
-// as an editor entity. Everything else (plain keywords AND parenthesized ones
-// whose word is absent) must be reported as NOT consumed so the caller can
-// preserve it untouched (audit F-T1 — pre-existing metadata must not vanish).
+// EVERY "Name (Typ)" keyword is editor-managed: those whose quote is verbatim
+// in the text anchor normally; those WITHOUT a text anchor become ORPHAN pills
+// (visible, deletable, and re-serialized on save unless deleted — no silent
+// loss, no un-deletable leftovers). Only plain keywords stay untouched.
 const kws = ['Optik', 'Weimar (Stadt)', 'Merkur (Planet)', 'huygenssches Prinzip (Fachbegriff)']
 const doc = 'Das huygenssche Prinzip wurde in Weimar diskutiert. huygenssches Prinzip eben.'
 const { annotations: seeded, consumed } = keywordsToAnnotations(kws, doc)
 check('keywords without pattern are skipped', !seeded.some((a) => a.quote === 'Optik'))
-check('parenthesized keyword whose word is absent → skipped (Merkur)', !seeded.some((a) => a.quote === 'Merkur'))
-check('found entities are seeded with type',
-  seeded.length === 2 && seeded.every((a) => a.id && a.occurrence === 1)
+check('parenthesized keyword whose word is absent → ORPHAN pill (Merkur)',
+  seeded.some((a) => a.quote === 'Merkur' && a.type === 'Planet'))
+check('orphan pill resolves with null range',
+  resolveAnnotations(seeded, doc).find((a) => a.quote === 'Merkur')?.start === null)
+check('anchored entities are seeded with type',
+  seeded.length === 3 && seeded.every((a) => a.id && a.occurrence === 1)
   && seeded.some((a) => a.quote === 'Weimar' && a.type === 'Stadt'))
-check('consumed = exactly the keywords turned into entities',
-  JSON.stringify([...consumed].sort()) === JSON.stringify(['Weimar (Stadt)', 'huygenssches Prinzip (Fachbegriff)'].sort()))
+check('consumed = every pattern keyword (incl. the orphan)',
+  JSON.stringify([...consumed].sort())
+    === JSON.stringify(['Merkur (Planet)', 'Weimar (Stadt)', 'huygenssches Prinzip (Fachbegriff)'].sort()))
 
 // exact duplicate entity keywords in the repo list must not create two pills
 {
@@ -87,11 +91,12 @@ check('consumed = exactly the keywords turned into entities',
     dup.annotations.length === 1 && dup.consumed.length === 1)
 }
 
-// preservedKeywords = everything NOT consumed (plain + parenthesized-but-absent)
+// preservedKeywords = ONLY plain keywords (everything else is editor-managed)
 const preserved = preservedKeywords(kws, consumed)
 check('preserved keeps plain keyword (Optik)', preserved.includes('Optik'))
-check('preserved keeps parenthesized-but-absent keyword (Merkur (Planet))', preserved.includes('Merkur (Planet)'))
-check('preserved drops the consumed entity keywords', !preserved.includes('Weimar (Stadt)'))
+check('preserved is ONLY the plain keywords', JSON.stringify(preserved) === JSON.stringify(['Optik']))
+check('orphan keyword round-trips via its pill (no loss while not deleted)',
+  mergeKeywords(preserved, serializeEntityKeywords(seeded)).includes('Merkur (Planet)'))
 
 // --- annotations → entity keywords (save path) --------------------------------
 const anns = [
@@ -106,13 +111,13 @@ check('every annotation type is serialized', entity.includes('Marie Curie (Perso
 // mergeKeywords: preserved (untouched) + current entities, deduplicated
 const finalList = mergeKeywords(preserved, entity)
 check('merge keeps preserved plain keyword', finalList.includes('Optik'))
-check('merge keeps preserved parenthesized-but-absent keyword', finalList.includes('Merkur (Planet)'))
 check('merge adds current entities', finalList.includes('Marie Curie (Person)'))
 check('merge has no duplicates', new Set(finalList).size === finalList.length)
 
 // --- F-T1 regression: full load→edit→save cycle preserves pre-existing metadata
 // A parenthesized keyword "Merkur (Planet)" whose "Merkur" is NOT in the text
-// must survive a save, even though the user only edited text (no tagging).
+// must survive a save, even though the user only edited text (no tagging) —
+// nowadays it survives as an ORPHAN pill that re-serializes on save.
 {
   const repoKeywords = ['Klimawandel', 'Merkur (Planet)']
   const text = 'Ein Text ganz ohne den Planeten.'

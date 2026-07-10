@@ -96,6 +96,32 @@ export const RoleBlock = Node.create({
       },
 
       /**
+       * Remove EVERY role block in the document, unwrapping each in place.
+       * Runs in passes (unwrap the first hit, rescan) so nested role blocks —
+       * whose recorded positions would go stale after unwrapping their parent
+       * — are handled correctly; all passes share one transaction.
+       */
+      unsetAllRoles: () => ({ tr, dispatch }) => {
+        let any = false
+        let found = true
+        while (found) {
+          found = false
+          tr.doc.descendants((node, pos) => {
+            if (found) return false
+            if (node.type.name === 'roleBlock') {
+              if (dispatch) tr.replaceWith(pos, pos + node.nodeSize, node.content)
+              any = true
+              found = Boolean(dispatch) // without dispatch: just report applicability
+              return false
+            }
+            return true
+          })
+          if (!dispatch) break
+        }
+        return any
+      },
+
+      /**
        * Remove the nearest surrounding role block, unwrapping its content IN
        * PLACE (not `lift`, which would only un-nest a nested role by one level
        * instead of removing it). The content keeps its position and parent.

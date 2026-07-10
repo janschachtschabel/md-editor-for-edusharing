@@ -209,7 +209,7 @@ Hier beginnt der Hauptteil.`
         // spans paragraphs 1–2, paragraph 3 stays outside
         { quote: 'Erster Satz der Einleitung.', endQuote: 'Zweiter Absatz der Einleitung.', role: 'einleitung' },
         // endQuote unknown → must fall back to wrapping only the start block
-        { quote: 'Hier beginnt der Hauptteil.', endQuote: 'Gibt es nicht.', role: 'lerninhalt' },
+        { quote: 'Hier beginnt der Hauptteil.', endQuote: 'Gibt es nicht.', role: 'kernidee' },
       ],
     }) } }] }),
   })
@@ -222,9 +222,9 @@ Hier beginnt der Hauptteil.`
   check('multi-paragraph role wraps BOTH intro paragraphs in one fence',
     /::: einleitung\r?\nErster Satz der Einleitung\.\r?\n\r?\nZweiter Absatz der Einleitung\.\r?\n:::/.test(spanMd), spanMd)
   check('paragraph after the range stays OUTSIDE the intro fence',
-    !/::: einleitung[\s\S]*Hauptteil[\s\S]*?\n:::\s*$/.test(spanMd.split('::: lerninhalt')[0] + ':::'), spanMd)
+    !/::: einleitung[\s\S]*Hauptteil[\s\S]*?\n:::\s*$/.test(spanMd.split('::: kernidee')[0] + ':::'), spanMd)
   check('unknown endQuote falls back to single-block wrap',
-    /::: lerninhalt\r?\nHier beginnt der Hauptteil\.\r?\n:::/.test(spanMd), spanMd)
+    /::: kernidee\r?\nHier beginnt der Hauptteil\.\r?\n:::/.test(spanMd), spanMd)
   check('span run reports two roles', spanResult.roles === 2, spanResult)
   globalThis.fetch = plainFetch
 }

@@ -34,17 +34,36 @@ export function roleSlug(label) {
 }
 
 /**
- * Didactic block roles (former "level 1"). Each `{slug, label}`: the slug is
- * what lands in the markdown (`::: definition`), the (German) label is what the
- * UI shows. Free roles stay allowed — any slug is valid; only these get a
- * translated label.
+ * Didactic block roles (catalog per spec 07/2026, 112 roles). Each
+ * `{slug, label}`: the slug is what lands in the markdown (`::: definition`),
+ * the (German) label is what the UI shows. Free roles stay allowed — any slug
+ * is valid; only these get a translated label. Retired slugs from earlier
+ * catalogs (e.g. `lerninhalt`, `rahmenkontext`) in existing markdown keep
+ * working as free roles (shown verbatim).
  */
 export const DEFAULT_BLOCK_ROLES = [
-  'Einleitung', 'Motivation', 'Definition', 'Lerninhalt', 'Beispiel',
-  'Aufgabe', 'Lösung', 'These', 'Beweis', 'Verfahren', 'Algorithmus',
-  'Methode', 'Lernziel', 'Rahmenkontext', 'Kommentar', 'Anekdote',
-  'Zusammenfassung', 'Übung', 'Reflexion', 'Feedback', 'Vertiefung',
-  'Exkurs', 'Merksatz', 'Hinweis', 'Warnung', 'Voraussetzung',
+  'Einleitung', 'Überblick', 'Zusammenfassung', 'Definition', 'Begriff',
+  'Erklärung', 'Hintergrund', 'Kontext', 'Problem', 'Fragestellung',
+  'Forschungsfrage', 'These', 'Hypothese', 'Ziel', 'Lernziel', 'Kompetenz',
+  'Voraussetzung', 'Motivation', 'Relevanz', 'Argument', 'Gegenargument',
+  'Begründung', 'Beweis', 'Herleitung', 'Annahme', 'Beobachtung', 'Fakt',
+  'Aussage', 'Regel', 'Gesetz', 'Prinzip', 'Theorie', 'Modell', 'Konzept',
+  'Methode', 'Vorgehen', 'Prozess', 'Ablauf', 'Schritt', 'Anleitung',
+  'Lösung', 'Lösungsweg', 'Strategie', 'Technik', 'Verfahren', 'Algorithmus',
+  'Formel', 'Gleichung', 'Berechnung', 'Beispiel', 'Gegenbeispiel',
+  'Anwendung', 'Fallbeispiel', 'Übung', 'Aufgabe', 'Frage', 'Antwort',
+  'Diskussionsfrage', 'Reflexionsfrage', 'Merksatz', 'Eselsbrücke', 'Tipp',
+  'Hinweis', 'Warnung', 'Fehlerquelle', 'Missverständnis', 'Ausnahme',
+  'Vergleich', 'Analogie', 'Klassifikation', 'Kategorie', 'Merkmal',
+  'Eigenschaft', 'Zusammenhang', 'Ursache', 'Wirkung', 'Konsequenz',
+  'Bedingung', 'Kriterium', 'Bewertung', 'Analyse', 'Interpretation',
+  'Schlussfolgerung', 'Fazit', 'Ausblick', 'Empfehlung', 'Kritik',
+  'Diskussion', 'Reflexion', 'Transfer', 'Vertiefung', 'Wiederholung',
+  'Lernkontrolle', 'Quiz', 'Musterlösung', 'Schlüsselbegriff', 'Kernidee',
+  'Kernbotschaft', 'Definitionstest', 'Prüfungswissen', 'Klausurtipp',
+  'Lernstrategie', 'Zeitstrahl', 'Chronologie', 'Ereignis', 'Experiment',
+  'Versuch', 'Beobachtungsauftrag', 'Datensatz', 'Ergebnis',
+  'Interpretation der Ergebnisse', 'Offene Frage',
 ].map((label) => ({ slug: roleSlug(label), label }))
 
 export const DEFAULT_TYPE_GROUPS = [
@@ -135,6 +154,43 @@ export const TYPE_LABELS_EN = {
   Workaround: 'Workaround', Fehlermeldung: 'Error message',
   Systemkomponente: 'System component', Konfiguration: 'Configuration',
   'UI-Element': 'UI element', Rolle: 'Role', FAQ: 'FAQ',
+  // Block-role labels (roles not already covered by the entity entries above)
+  Überblick: 'Overview', Begriff: 'Term', Erklärung: 'Explanation',
+  Hintergrund: 'Background', Kontext: 'Context',
+  Fragestellung: 'Guiding question', Forschungsfrage: 'Research question',
+  Ziel: 'Goal', Relevanz: 'Relevance', Argument: 'Argument',
+  Gegenargument: 'Counterargument', Begründung: 'Justification',
+  Herleitung: 'Derivation', Annahme: 'Assumption', Beobachtung: 'Observation',
+  Fakt: 'Fact', Aussage: 'Statement', Regel: 'Rule', Gesetz: 'Law',
+  Prinzip: 'Principle', Modell: 'Model', Vorgehen: 'Approach',
+  Prozess: 'Process', Ablauf: 'Sequence', Schritt: 'Step',
+  Anleitung: 'Instructions', Lösungsweg: 'Solution path',
+  Strategie: 'Strategy', Technik: 'Technique', Gleichung: 'Equation',
+  Berechnung: 'Calculation', Gegenbeispiel: 'Counterexample',
+  Anwendung: 'Application', Fallbeispiel: 'Case study', Frage: 'Question',
+  Antwort: 'Answer', Diskussionsfrage: 'Discussion question',
+  Reflexionsfrage: 'Reflection question', Eselsbrücke: 'Mnemonic',
+  Tipp: 'Tip', Fehlerquelle: 'Common error',
+  Missverständnis: 'Misconception', Ausnahme: 'Exception',
+  Vergleich: 'Comparison', Analogie: 'Analogy',
+  Klassifikation: 'Classification', Kategorie: 'Category',
+  Merkmal: 'Characteristic', Eigenschaft: 'Property',
+  Zusammenhang: 'Relationship', Wirkung: 'Effect', Konsequenz: 'Consequence',
+  Bedingung: 'Condition', Kriterium: 'Criterion', Bewertung: 'Evaluation',
+  Analyse: 'Analysis', Interpretation: 'Interpretation',
+  Schlussfolgerung: 'Inference', Fazit: 'Conclusion', Ausblick: 'Outlook',
+  Empfehlung: 'Recommendation', Kritik: 'Critique', Diskussion: 'Discussion',
+  Transfer: 'Transfer', Wiederholung: 'Review',
+  Lernkontrolle: 'Knowledge check', Quiz: 'Quiz',
+  Musterlösung: 'Model solution', Schlüsselbegriff: 'Key term',
+  Kernidee: 'Core idea', Kernbotschaft: 'Key message',
+  Definitionstest: 'Definition check', Prüfungswissen: 'Exam essentials',
+  Klausurtipp: 'Exam tip', Lernstrategie: 'Learning strategy',
+  Zeitstrahl: 'Timeline', Chronologie: 'Chronology', Ereignis: 'Event',
+  Versuch: 'Trial', Beobachtungsauftrag: 'Observation task',
+  Ergebnis: 'Result',
+  'Interpretation der Ergebnisse': 'Interpretation of results',
+  'Offene Frage': 'Open question',
 }
 
 /** Display label for a default type VALUE — falls back to the value itself

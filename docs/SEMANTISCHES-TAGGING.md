@@ -150,16 +150,19 @@ Entitäten werden als **`cclom:general_keyword`** in der Form
   darf selbst Klammern enthalten („Willy Brandt (SPD)"), nur die *letzte*
   Klammergruppe zählt als Typ. Deshalb sind **Klammern in Typwerten
   verboten** (`isValidType`).
-- **Roundtrip mit Bestandsschutz:** Beim Laden werden Keywords im Muster
-  geparst und per Zitat-Suche verankert — aber **nur die als Annotation
-  übernommenen gelten als editor-verwaltet** („consumed"). Beim Speichern
-  wird die Keyword-Liste als `preservedKeywords (unangetastet)` **+**
-  `serializeEntityKeywords (aus den aktuellen Annotationen)` neu zusammengesetzt.
-  Damit bleibt **jedes** vorbestehende Keyword erhalten — sowohl schlichte
-  („Optik") als auch parenthesierte, deren Wort nicht im Text steht
-  (z. B. eine Disambiguierung `Merkur (Planet)`). Details/Falle:
-  [ABSATZROLLEN.md](ABSATZROLLEN.md) ist hier nicht relevant, aber der
-  System-Skill `wlo-edu-sharing-api` → „Keywords sicher schreiben".
+- **Roundtrip mit Bestandsschutz:** Beim Laden wird **jedes** Keyword im
+  Muster `Name (Typ)` zur Annotation („consumed") — mit Text-Anker als normale
+  Pille, ohne Anker als **verwaiste (graue) Pille**. Beim Speichern wird die
+  Liste als `preservedKeywords (nur schlichte Keywords, unangetastet)` **+**
+  `serializeEntityKeywords (aus den aktuellen Annotationen, dedupliziert)`
+  zusammengesetzt. Konsequenz: Nichts geht still verloren (verwaiste Pillen
+  serialisieren sich zurück, solange sie nicht gelöscht werden — auch
+  redaktionelle Disambiguierungen wie `Merkur (Planet)` bleiben so erhalten,
+  nur eben sichtbar), und nichts klebt unlöschbar am Knoten (verwaiste
+  Entitäts-Keywords — Text geändert, oder im *anderen* Feld getaggt, denn
+  Kompendium und Beschreibung teilen **ein** Keyword-Feld — sind als Pille
+  löschbar). Allgemeines Merge-Muster: System-Skill `wlo-edu-sharing-api` →
+  „Keywords sicher schreiben".
 - **Mengen-Vergleich:** Änderungserkennung und Read-Back vergleichen die
   Keyword-Liste als **Menge** (Reihenfolge egal) — sonst löst schon ein
   Umsortieren durch das Repo einen Phantom-Write aus.

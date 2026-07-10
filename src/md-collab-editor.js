@@ -506,6 +506,20 @@ class MdCollabEditor extends HTMLElement {
       }
       this._rolesEl.appendChild(chip)
     }
+    if (editable && roles.length >= 2) {
+      const clear = document.createElement('button')
+      clear.type = 'button'
+      clear.className = 'mce-chips-clear'
+      clear.textContent = t(this._lang, 'roleChip.clearAll')
+      clear.title = t(this._lang, 'roleChip.clearAllTitle')
+      clear.setAttribute('aria-label', t(this._lang, 'roleChip.clearAllTitle'))
+      clear.addEventListener('click', () => {
+        if (window.confirm(t(this._lang, 'roleChip.clearAllConfirm', { count: roles.length }))) {
+          this.editor.chain().focus().unsetAllRoles().run()
+        }
+      })
+      this._rolesEl.appendChild(clear)
+    }
   }
 
   _updateToolbar() {

@@ -137,8 +137,10 @@ export function openManageDialog(root, coords, { annotations, canDelete, onDelet
 /**
  * Render the entity chips bar: one chip per annotation ("Quote (Typ)").
  * Orphaned annotations (quote no longer in the text) are shown muted.
+ * With ≥2 chips and edit rights, a trailing "alle ✕" button clears them all
+ * (onClearAll — the caller asks for confirmation).
  */
-export function renderEntityChips(container, resolved, { canEdit, onSelect, onDelete, lang = 'de' }) {
+export function renderEntityChips(container, resolved, { canEdit, onSelect, onDelete, onClearAll, lang = 'de' }) {
   container.innerHTML = ''
   container.style.display = resolved.length ? '' : 'none'
   for (const a of resolved) {
@@ -167,6 +169,16 @@ export function renderEntityChips(container, resolved, { canEdit, onSelect, onDe
       chip.appendChild(del)
     }
     container.appendChild(chip)
+  }
+  if (canEdit && onClearAll && resolved.length >= 2) {
+    const clear = document.createElement('button')
+    clear.type = 'button'
+    clear.className = 'mce-chips-clear'
+    clear.textContent = t(lang, 'chips.clearAll')
+    clear.title = t(lang, 'chips.clearAllTitle')
+    clear.setAttribute('aria-label', t(lang, 'chips.clearAllTitle'))
+    clear.addEventListener('click', () => onClearAll(resolved.length))
+    container.appendChild(clear)
   }
 }
 

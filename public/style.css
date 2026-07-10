@@ -588,6 +588,21 @@ md-collab-editor.mce-root { display: flex; flex-direction: column; flex: 1; }
   outline-offset: 1px;
 }
 
+/* "alle ✕" — Alles-löschen-Button am Ende der Entitäten-/Rollen-Leiste */
+.mce-chips-clear {
+  border: 1px dashed var(--border);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: inherit;
+  padding: .12rem .5rem;
+  border-radius: 99px;
+  margin-left: .35rem;
+  white-space: nowrap;
+}
+.mce-chips-clear:hover { color: #e5484d; border-color: #e5484d; }
+.mce-chips-clear:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
 /* Tag-Popup (Anlegen/Verwalten) — position: fixed, an der Auswahl/Maus */
 .mce-tag-popup {
   position: fixed;

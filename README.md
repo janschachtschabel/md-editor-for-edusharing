@@ -229,7 +229,8 @@ Keyword-Roundtrip) steht in
   Stellen werden dezent hervorgehoben (reine Decorations); Klick auf eine
   Stelle zeigt die dortigen Tags mit Löschen-Option. Die **Entitäten-Leiste**
   unter der Toolbar listet alle Tags als Chips (Klick = Stelle anspringen,
-  ✕ = entfernen).
+  ✕ = entfernen, **„alle ✕" = alle Tags auf einmal entfernen** — mit
+  Rückfrage; die Rollen-Leiste hat denselben Sammel-Button für Absatzrollen).
 - **Datenmodell:** `{id, quote, occurrence, type, entityId?}` in einer eigenen
   `Y.Array` im selben Yjs-Dokument (kollaborationsfest). Verankert wird über
   **Zitat + n-tes Vorkommen** — Offsets berechnet der Code deterministisch per
@@ -237,13 +238,17 @@ Keyword-Roundtrip) steht in
   verschachtelt und deckungsgleich erlaubt, **kreuzend wird abgelehnt**.
 - **Persistenz:** Entitäten werden beim Speichern als General Keywords in der
   Form **`Weimar (Stadt)`** geschrieben (`cclom:general_keyword`, via
-  setProperty). **Editor-verwaltet ist nur, was beim Laden als Annotation
-  verankert wurde** — also ein Keyword im Muster `Name (Typ)`, dessen Zitat
-  **wörtlich im Text** vorkommt. Jedes andere Repo-Keyword bleibt unangetastet:
-  nicht nur schlichte Schlagwörter, sondern auch bereits vorhandene
-  Klammer-Keywords, deren Wort *nicht* im Text steht (z. B. eine
-  Disambiguierung `Merkur (Planet)`) — diese werden nie überschrieben oder
-  gelöscht. Keywords werden — wie das Markdown — per Read-Back verifiziert.
+  setProperty). **Editor-verwaltet ist jedes Keyword im Muster `Name (Typ)`**:
+  Steht das Zitat wörtlich im Text, erscheint es als normale Pille; steht es
+  *nicht* (mehr) im Text — z. B. nach Textänderungen, bei Tags aus dem jeweils
+  anderen Feld (Kompendium und Beschreibung teilen sich **ein** Keyword-Feld)
+  oder bei redaktionellen Disambiguierungen wie `Merkur (Planet)` — erscheint
+  es als **verwaiste (graue) Pille**. Verwaiste Pillen bleiben beim Speichern
+  als Keyword erhalten, solange man sie nicht löscht — es geht nichts still
+  verloren, aber alles ist sichtbar und **löschbar** (nichts „klebt" mehr
+  unlöschbar am Knoten). Schlichte Schlagwörter ohne Muster bleiben grundsätzlich
+  unangetastet. Keywords werden — wie das Markdown — per Read-Back verifiziert
+  und ohne Duplikate geschrieben.
 - **KI-Anbindung:** `addAnnotation({quote, type})` nimmt KI-Ausgaben im
   Zitat-plus-Typ-Format entgegen (nicht auffindbare Zitate werden mit
   Fehlermeldung abgelehnt — eingebaute Halluzinations-Prüfung);

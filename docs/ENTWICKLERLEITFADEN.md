@@ -536,13 +536,16 @@ Kurzfassung der Prinzipien (Details und Trade-off-Tabellen im verlinkten Dokumen
 - **Überlappung** — verschachtelt/deckungsgleich erlaubt, kreuzend abgelehnt.
 - **Persistenz** — als General Keywords `Name (Typ)` in
   `cclom:general_keyword` via setProperty + Read-Back. **Editor-verwaltet ist
-  nur, was beim Laden als Annotation verankert wurde** (Muster `Name (Typ)`
-  **und** Zitat wörtlich im Text). Jedes andere Repo-Keyword — plain *oder*
-  parenthesiert, aber nicht als Entität geladen (z. B. eine bestehende
-  Disambiguierung `Merkur (Planet)`, deren Wort nicht im Text steht) — wird
-  unverändert durchgereicht und **nie** überschrieben. Diese Unterscheidung
-  (`preservedKeywords` vs. `serializeEntityKeywords` in `src/annotations.js`)
-  verhindert stillen Verlust bestehender Metadaten (Audit F-T1).
+  jedes Keyword im Muster `Name (Typ)`**: mit Text-Anker als normale Pille,
+  ohne Anker (Text geändert, im *anderen* Feld getaggt — Kompendium und
+  Beschreibung teilen **ein** Keyword-Feld — oder redaktionelle
+  Disambiguierung wie `Merkur (Planet)`) als **verwaiste graue Pille**.
+  Verwaiste Pillen serialisieren sich beim Speichern zurück, solange sie
+  niemand löscht — kein stiller Verlust (Audit F-T1), aber auch kein
+  unlöschbares Kleben verwaister Entitäts-Keywords. Schlichte Keywords ohne
+  Muster (`preservedKeywords`) werden unverändert durchgereicht und **nie**
+  überschrieben; geschrieben wird dedupliziert
+  (`serializeEntityKeywords`/`mergeKeywords` in `src/annotations.js`).
 - **Typ-Katalog** — zwei Ebenen (Didaktik/Wissensart + Entitätstypen,
   `src/entity-types.js`), freie Typen erlaubt (nur Klammern verboten).
 

@@ -47,6 +47,27 @@ check('roleLabel resolves a slug back to its display label (de/en)',
 check('roleLabel passes an unknown (free) slug through unchanged',
   roleLabel('mein-eigener', 'de') === 'mein-eigener' && roleLabel('mein-eigener', 'en') === 'mein-eigener')
 
+// --- new role catalog (spec 07/2026, 112 roles) --------------------------------
+check('role catalog has exactly the 112 specified roles', DEFAULT_BLOCK_ROLES.length === 112,
+  `length=${DEFAULT_BLOCK_ROLES.length}`)
+check('new roles are present',
+  ['Überblick', 'Fazit', 'Eselsbrücke', 'Offene Frage', 'Interpretation der Ergebnisse', 'Quiz', 'Zeitstrahl', 'Klausurtipp']
+    .every((l) => DEFAULT_BLOCK_ROLES.some((r) => r.label === l)))
+check('retired roles are gone from the catalog',
+  ['Lerninhalt', 'Rahmenkontext', 'Anekdote', 'Exkurs', 'Feedback', 'Kommentar']
+    .every((l) => !DEFAULT_BLOCK_ROLES.some((r) => r.label === l)))
+check('multi-word labels get hyphenated slugs and resolve back',
+  roleLabel('offene-frage', 'de') === 'Offene Frage'
+  && roleLabel('interpretation-der-ergebnisse', 'de') === 'Interpretation der Ergebnisse')
+check('every role has a real English label (not the German fallback)',
+  DEFAULT_BLOCK_ROLES.every((r) => {
+    const en = roleLabel(r.slug, 'en')
+    return typeof en === 'string' && en.length > 0
+  })
+  && roleLabel('eselsbruecke', 'en') === 'Mnemonic'
+  && roleLabel('ueberblick', 'en') === 'Overview'
+  && roleLabel('fazit', 'en') === 'Conclusion')
+
 // --- suggestion builder ---------------------------------------------------------
 const options = buildTypeOptions(['Person', 'Mein Spezialtyp'])
 check('used custom types come first, marked as used',

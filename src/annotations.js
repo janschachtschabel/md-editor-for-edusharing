@@ -129,22 +129,25 @@ export function resolveAnnotations(annotations, text) {
 }
 
 /**
- * Load path: turn stored general keywords into annotations by locating each
- * entity's quote in the text (first occurrence).
+ * Load path: turn stored general keywords into annotations.
  *
- * A keyword is only "consumed" as an editor entity when it matches the
- * "Name (Typ)" pattern AND its quote occurs verbatim in the text. This is the
- * ONLY reliable signal that a keyword is editor-managed rather than
- * pre-existing editorial metadata — the parenthesized shape alone is NOT
- * enough, since human keywords use parentheses too (disambiguation like
- * "Merkur (Planet)"). Anything not consumed (plain keywords AND parenthesized
- * keywords whose word is absent) is reported back so the caller preserves it
- * untouched (audit F-T1: pre-existing metadata must never vanish on save).
+ * EVERY keyword matching the "Name (Typ)" pattern is editor-managed and
+ * becomes a pill: keywords whose quote occurs verbatim in the text anchor
+ * normally, the rest become ORPHAN pills (resolve to start/end = null,
+ * rendered grey). Orphans stay fully round-trip-safe — they are re-serialized
+ * on every save until a user explicitly deletes their pill. This keeps
+ * pre-existing editorial pattern keywords ("Merkur (Planet)") visible and
+ * preserved (no silent loss, audit F-T1) while making stale entity keywords
+ * — quote edited away, or tagged in the OTHER field of the same node
+ * (compendium vs. description share one keyword list) — deletable instead of
+ * sticking forever. Only plain keywords are not consumed and pass through
+ * untouched.
  *
+ * @param {string} _text unused since orphans are kept; retained for API shape
  * @returns {{annotations: object[], consumed: string[]}} consumed = the exact
  *   keyword strings that became annotations.
  */
-export function keywordsToAnnotations(keywords, text) {
+export function keywordsToAnnotations(keywords, _text) {
   const annotations = []
   const consumed = []
   const seen = new Set() // exact duplicates in the repo list → one pill, not two
@@ -153,7 +156,6 @@ export function keywordsToAnnotations(keywords, text) {
     seen.add(keyword)
     const parsed = parseKeyword(keyword)
     if (!parsed) continue
-    if (!findQuoteRange(text, parsed.quote)) continue
     annotations.push({
       id: `kw-${annotations.length}-${Date.now().toString(36)}`,
       quote: parsed.quote,
