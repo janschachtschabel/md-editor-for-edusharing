@@ -152,7 +152,58 @@ function openDocument(nodeId, field) {
   el.setAttribute('lang', lang)
   if (WS_URL) el.setAttribute('websocket-url', WS_URL)
   if (session.token) el.setAttribute('token', session.token)
+  $('#viewer-toggle').checked = false // fresh mount starts in edit view
+
+  // Image upload → child-IO under the node (server proxies edu-sharing)
+  el.uploadImage = async (file) => {
+    const res = await api(
+      `/api/nodes/${encodeURIComponent(current.nodeId)}/images?filename=${encodeURIComponent(file.name)}`,
+      { method: 'POST', headers: { 'Content-Type': file.type, ...authHeaders() }, body: file },
+    )
+    if (!res.ok) throw new Error((await res.json().catch(() => ({})))?.error || `HTTP ${res.status}`)
+    return (await res.json()).url
+  }
+
+  // Node comments (edu-sharing comment API, proxied with the session)
+  el.commentsApi = {
+    list: async () => {
+      const res = await api(`/api/nodes/${encodeURIComponent(current.nodeId)}/comments`, { headers: authHeaders() })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      return (await res.json()).comments
+    },
+    add: async (text, replyTo) => {
+      const res = await api(`/api/nodes/${encodeURIComponent(current.nodeId)}/comments`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
+        body: JSON.stringify({ text, replyTo }),
+      })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    },
+    remove: async (id) => {
+      const res = await api(`/api/comments/${encodeURIComponent(id)}`,
+        { method: 'DELETE', headers: authHeaders() })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    },
+  }
+  // Media management: uploaded editor images (mdimg child-IOs under the node)
+  el.mediaApi = {
+    list: async () => {
+      const res = await api(`/api/nodes/${encodeURIComponent(current.nodeId)}/images`, { headers: authHeaders() })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      return (await res.json()).images
+    },
+    remove: async (id) => {
+      const res = await api(`/api/nodes/${encodeURIComponent(current.nodeId)}/images/${encodeURIComponent(id)}`,
+        { method: 'DELETE', headers: authHeaders() })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    },
+  }
   slot.appendChild(el)
+
+  // Deep link: #slug in the URL jumps to the heading once the doc is synced
+  el.addEventListener('synced', () => {
+    if (location.hash.length > 1) el.jumpToAnchor(decodeURIComponent(location.hash.slice(1)))
+  }, { once: true })
 
   el.addEventListener('status-change', (e) => {
     const s = e.detail.status
@@ -284,6 +335,13 @@ function setSaveState(state, text) {
   el.textContent = text
   $('#save-led').dataset.state = state // control LED mirrors the state
 }
+
+// Viewer mode: drives the component's externally controllable `viewer`
+// attribute (read view without the toolbar) — here wired to a demo switch
+$('#viewer-toggle').addEventListener('change', (e) => {
+  const el = $('#editor-slot md-collab-editor')
+  if (el) el.setAttribute('viewer', e.target.checked ? 'true' : 'false')
+})
 
 // -------------------------------------- Autosave toggle / save now ---
 $('#autosave-toggle').addEventListener('change', async (e) => {

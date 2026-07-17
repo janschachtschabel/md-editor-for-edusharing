@@ -10,7 +10,6 @@ umgesetzt ist.
 
 - **Repo:** <https://github.com/janschachtschabel/md-editor-for-edusharing>
 - **Nutzerhandbücher:** [`README.md`](../README.md) (DE) · [`README.en.md`](../README.en.md) (EN)
-- **Audits:** [`docs/audits/`](audits/)
 
 ---
 
@@ -151,6 +150,8 @@ verlustfrei in Markdown (GFM) abbildbar sein**.
 | **Toolbar-Definition** | [`src/toolbar.js`](../src/toolbar.js) | Symbol-Buttons + Tabellen-Kontextaktionen |
 | **Save-Bar-Logik** (pur, getestet) | [`src/save-state.js`](../src/save-state.js) | LED-Zustand + Countdown-Berechnung |
 | **Save-Bar-Controller** | [`src/save-bar.js`](../src/save-bar.js) | DOM, Speichern-Button, Server-Events (`config`/`saved`/`save-error`), Countdown-Ticker |
+| **Inhaltsverzeichnis** | [`src/toc.js`](../src/toc.js) | fügt per ☰-Button einen `::: inhaltsverzeichnis`-Block am Dokumentanfang ein: verschachtelte Standard-Markdown-Links mit GitHub-kompatiblen `#slug`-Ankern (springen im Editor UND in externen Renderern); fester Slug → Zweitklick aktualisiert |
+| **Entitäten-Glossar** | [`src/glossary.js`](../src/glossary.js) | fügt per Button einen `::: glossar`-Block mit allen verankerten Entitäten am Dokumentende ein; fester Slug → Zweitklick aktualisiert statt dupliziert |
 | **Markdown-Regelwerk** | [`src/markdown.js`](../src/markdown.js) | verlustfreier Roundtrip: Task-Listen, Tabellen-`colgroup`-Fix, kompakte Zellen/Listen, Sup/Sub, Strike |
 | **edu-sharing-API-Client** | [`server/edu-sharing-api.js`](../server/edu-sharing-api.js) | Lesen/Schreiben, `setProperty`-Umweg, Access-Check, Read-Back |
 | **Persistenz-Regelung** | [`server/collab.js`](../server/collab.js) | Puffer-Strategie, Änderungserkennung, Retry, Status-Broadcast |
@@ -467,7 +468,8 @@ Weil TipTap headless ist, sind alle sichtbaren UI-Elemente Eigenbau:
 
 ## 12. Sicherheit
 
-Der Stand ist zwei Audits durchlaufen ([`docs/audits/`](audits/)); die dort
+Der Stand ist mehrfach auditiert (die Audit-Berichte liegen bewusst NICHT im
+Repo — Arbeitsartefakte); die dort
 gefundenen Punkte sind behoben. Die wichtigsten Sicherheitsmerkmale:
 
 - **Keine Credentials im Browser** — nur opake, widerrufbare Session-Tokens
@@ -579,6 +581,19 @@ src/presence.js            Presence-Tracker (Awareness → Chips)
 src/toolbar.js             Toolbar-Definition (Symbol-Buttons + Tabellen-Aktionen)
 src/save-state.js          Save-Bar-Logik (pur, getestet)
 src/save-bar.js            Save-Bar-Controller (DOM, Server-Events, Ticker)
+src/toc.js                 Inhaltsverzeichnis (::: inhaltsverzeichnis im Dokument, Link-Sprungmarken)
+src/glossary.js            Entitäten-Glossar (::: glossar am Dokumentende, idempotent)
+src/find-replace.js        Suchen & Ersetzen (plain-text-basiert, kollaborativ/undobar)
+src/ai-review.js           Prüf-Panel für KI-Vorschläge (ai-apply/ai-discard)
+src/component-setup.js     Aufbau von Controllern, Provider und Editor (Verdrahtung)
+src/toolbar-setup.js       Toolbar-Aufbau (Format- + Feature-Buttons, Roving-Tabindex)
+src/comments-ui.js         Kommentar-Panel (Node-Kommentare, Antworten, »Zitat«-Anker)
+src/comment-marks.js       gelbe In-Text-Markierung »Zitat«-verankerter Kommentare
+src/media-ui.js            Medienverwaltungs-Panel (Bilder: Vorschau, Einfügen, Löschen)
+src/export.js              Markdown-Download + Druckansicht (⬇ MD / 🖨)
+server/doc-blocks.js       Auto-Refresh von Inhaltsverzeichnis/Glossar bei jedem Save
+server/api-media.js        HTTP-Routen für Bilder + Kommentare (Session-Gate, Rate-Limit)
+server/images.js           Bild-Uploads als Child-IOs (mdimg-) + Verwaisten-Aufräumen beim Save
 src/annotations.js         Semantisches Tagging — pure Logik (pur, getestet)
 src/entity-types.js        Default-Typkatalog (2 Ebenen, pur, getestet)
 src/annotation-extension.js Decorations + Text-Index (Offset ⇄ PM-Position)
@@ -594,7 +609,6 @@ test/                      Testsuiten (npm test)
 .github/ + .gitlab-ci.yml  CI: Build+Test, Docker-Image → ghcr.io / self-hosted
 Dockerfile · docker-compose.yml   All-in-One-Container
 docs/SEMANTISCHES-TAGGING.md      Design-Doku des semantischen Taggings
-docs/audits/               Zwei Code-Audits (Findings behoben)
 ```
 
 ### Schnellstart für Entwickler

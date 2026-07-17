@@ -151,6 +151,12 @@ export class AnnotationController {
     if (!isValidType(type)) {
       return t(lang, 'controller.invalidType')
     }
+    // Exact duplicates are rejected — every entity may exist ONCE as a pill
+    // (the crossing check below allows identical spans, so guard explicitly)
+    if (this.raw().some((a) =>
+      a.quote === quote && a.type === type && (a.occurrence ?? 1) === (occurrence ?? 1))) {
+      return t(lang, 'controller.duplicate', { label: `${quote} (${type})` })
+    }
     for (const a of this.list(text)) {
       if (a.start !== null && isCrossing(range, a)) {
         return t(lang, 'controller.crossing', { label: `${a.quote} (${a.type})` })

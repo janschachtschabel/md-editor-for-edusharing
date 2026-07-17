@@ -8,13 +8,13 @@
     "build": "esbuild src/md-collab-editor.js --bundle --minify --legal-comments=external --outfile=public/md-collab-editor.js && esbuild src/host.js --bundle --minify --legal-comments=external --outfile=public/host.bundle.js",
     "start": "node server.js",
     "dev": "npm run build && node server.js",
-    "test": "node test/roundtrip.test.mjs && node test/annotations.test.mjs && node test/entity-types.test.mjs && node test/save-state.test.mjs && node test/guards.test.mjs && node test/sessions.test.mjs && node test/api-auth.test.mjs && node test/i18n.test.mjs && node test/annotation-ui.test.mjs && node test/component.test.mjs && node test/collab-load.test.mjs && node test/keyword-lifecycle.test.mjs && node test/ai-tagging.test.mjs",
+    "test": "node test/roundtrip.test.mjs && node test/annotations.test.mjs && node test/entity-types.test.mjs && node test/save-state.test.mjs && node test/guards.test.mjs && node test/sessions.test.mjs && node test/api-auth.test.mjs && node test/i18n.test.mjs && node test/annotation-ui.test.mjs && node test/component.test.mjs && node test/collab-load.test.mjs && node test/keyword-lifecycle.test.mjs && node test/media-comments.test.mjs && node test/ai-tagging.test.mjs",
     "lint": "eslint ."
   },
   "dependencies": {
-    "@hocuspocus/provider": "^4.3.0",
-    "@hocuspocus/server": "^4.3.0",
-    "@hocuspocus/transformer": "^4.3.0",
+    "@hocuspocus/provider": "^4.4.0",
+    "@hocuspocus/server": "^4.4.0",
+    "@hocuspocus/transformer": "^4.4.0",
     "@tiptap/core": "^3.27.1",
     "@tiptap/extension-collaboration": "^3.27.1",
     "@tiptap/extension-collaboration-caret": "^3.27.1",
@@ -33,6 +33,7 @@
     "marked": "^18.0.5",
     "turndown": "^7.2.0",
     "turndown-plugin-gfm": "^1.0.2",
+    "y-prosemirror": "^1.3.7",
     "yjs": "^13.6.23"
   },
   "devDependencies": {

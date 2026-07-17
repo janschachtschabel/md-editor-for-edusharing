@@ -41,6 +41,13 @@ export const TOOLBAR = [
     const url = window.prompt(tt('toolbar.imagePrompt'))
     if (url) e.chain().focus().setImage({ src: url }).run()
   } },
+  // Image sizing — shown only while an image is selected (`image: true`,
+  // same contextual pattern as the table buttons). Width persists as a raw
+  // HTML img (markdown has no size syntax); ⛶ returns to pure markdown.
+  { cmd: 'imgS', label: 'S', titleKey: 'toolbar.imgSmall', image: true, active: (e) => e.getAttributes('image').width === 240, run: (e) => e.chain().focus().updateAttributes('image', { width: 240 }).run() },
+  { cmd: 'imgM', label: 'M', titleKey: 'toolbar.imgMedium', image: true, active: (e) => e.getAttributes('image').width === 480, run: (e) => e.chain().focus().updateAttributes('image', { width: 480 }).run() },
+  { cmd: 'imgL', label: 'L', titleKey: 'toolbar.imgLarge', image: true, active: (e) => e.getAttributes('image').width === 720, run: (e) => e.chain().focus().updateAttributes('image', { width: 720 }).run() },
+  { cmd: 'imgFull', label: '⛶', titleKey: 'toolbar.imgFull', image: true, active: (e) => !e.getAttributes('image').width, run: (e) => e.chain().focus().updateAttributes('image', { width: null }).run() },
   { sep: true },
   { cmd: 'table', labelKey: 'toolbar.tableLabel', titleKey: 'toolbar.table', run: (e) => e.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run() },
   { cmd: 'rowAdd', labelKey: 'toolbar.rowAddLabel', titleKey: 'toolbar.rowAdd', table: true, run: (e) => e.chain().focus().addRowAfter().run() },

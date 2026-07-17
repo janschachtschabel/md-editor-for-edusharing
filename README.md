@@ -104,10 +104,12 @@ Ist ein B-API-Key konfiguriert, erscheint in der Toolbar der Button
 (Presence-Chip „🤖 KI-Tagger"), erkennt **Entitäten** (kürzestmögliche exakte
 Zitate + Typ → Pillen/Keywords) und **Absatzrollen** (Zitat + Rollen-Slug →
 `:::`-Blöcke; bei zusammengehörigen Abschnitten auch über **mehrere Absätze**),
-trägt beides validiert ins geteilte Dokument ein und verlässt den Editor
-wieder. Alle KI-Vorschläge durchlaufen dieselbe Validierung wie menschliche
-Eingaben (halluzinierte Zitate, Kreuzungen, Duplikate und Nicht-Katalog-Rollen
-werden verworfen). Der API-Key bleibt ausschließlich auf dem Server; der
+und legt die validierten Funde dem Auslöser als **Vorschlagsliste zur
+Prüfung** vor (Checkboxen unter der Toolbar): erst „Ausgewählte übernehmen"
+schreibt sie ins geteilte Dokument, „Verwerfen" verwirft sie — beim Übernehmen
+wird gegen den dann aktuellen Stand erneut validiert. Alle KI-Vorschläge
+durchlaufen dieselbe Validierung wie menschliche Eingaben (halluzinierte
+Zitate, Kreuzungen, Duplikate und Nicht-Katalog-Rollen werden verworfen). Der API-Key bleibt ausschließlich auf dem Server; der
 Auslöser braucht eine Schreibverbindung (serverseitig erzwungen und getestet).
 Pro Dokument läuft höchstens ein KI-Lauf gleichzeitig, und zwischen zwei
 Läufen gilt eine kurze Wartezeit als Kostenbremse (`AI_COOLDOWN_MS`, Default
@@ -160,6 +162,32 @@ Styles liegen in [public/style.css](public/style.css) (Abschnitte `mce-*` und
 | `user-color` | nein | Cursor-Farbe (Default: zufällig) |
 | `token` | nein | opakes Session-Token aus `POST /api/login`; ohne (oder ungültig/abgelaufen) → read-only |
 | `read-only` | nein | `"true"` erzwingt Nur-Lesen clientseitig |
+| `viewer` | nein | `"true"` schaltet den **Viewer-Modus**: Nur-Lese-Ansicht ohne Werkzeugleiste, von außen umschaltbar (Demo: Schalter in der linken Leiste) |
+
+Zusätzlich zwei **injizierbare Properties** (halten die Komponente Repo-agnostisch):
+`el.uploadImage = async (file) => url` macht aus dem 🖼-Button einen Datei-Upload
+(die Demo lädt als **Serienobjekt/Child-IO** unter den Knoten, `POST
+/api/nodes/:id/images`; beim Speichern räumt der Server nicht mehr
+referenzierte Editor-Bilder automatisch ab). Bild anklicken blendet
+**Größen-Buttons S/M/L/⛶** ein (240/480/720 px/Original): die Breite wird
+als CommonMark-legales Inline-HTML `<img … width="…">` gespeichert und von
+GitHub & Co. gerendert; ohne Breite bleibt das Bild reines Markdown und
+responsiv per CSS. `el.commentsApi = {list, add,
+remove}` aktiviert das 💬-**Kommentar-Panel** (rechts einblendbar):
+Node-Kommentare der edu-sharing-API mit Antworten (1 Ebene, nativ), Löschen
+eigener Beiträge und optionalem **Textstellen-Bezug** — eine aktive Markierung
+wird als klickbares »Zitat« angehängt und springt zurück zur Stelle.
+`el.mediaApi = {list, remove}` macht den 🖼-Button zum **Medien-Panel**
+(ein Einstiegspunkt für alles Bildliche): ⬆ Hochladen, 🔗 Bild-URL sowie die
+Verwaltung der hochgeladenen Editor-Bilder — Vorschau, „im Text"-Kennzeichnung,
+erneutes Einfügen, Löschen (mit Warnung, wenn noch referenziert). Ohne
+mediaApi fällt 🖼 auf den Datei-Dialog (uploadImage) bzw. den URL-Dialog zurück.
+Verankerte Kommentare markieren ihre Textstelle zusätzlich **gelb im Text**
+(Klick öffnet das Panel am Kommentar). Über die Toolbar lässt sich der
+aktuelle Stand als **Markdown-Datei herunterladen (⬇ MD**, Dateiname =
+Node-ID) und **drucken (🖨)** — der Druck öffnet ein eigenes Fenster nur mit
+dem Dokument (funktioniert auch in Webviews ohne eigene Seitenansicht;
+Strg+P auf der Seite bleibt über Print-CSS ebenfalls sauber).
 | `lang` | nein | UI-Sprache (`de`/`en`, Default `de`) — Toolbar, Dialoge, Fehlermeldungen |
 
 ### Events (raus, CustomEvent mit `detail`)
@@ -366,6 +394,19 @@ src/md-collab-editor.js    Web Component
 src/toolbar.js             Toolbar-Definition
 src/save-state.js          Save-Bar-Logik (pur, getestet)
 src/save-bar.js            Save-Bar-Controller (DOM, Server-Events, Ticker)
+src/toc.js                 Inhaltsverzeichnis (::: inhaltsverzeichnis im Dokument, Link-Sprungmarken)
+src/glossary.js            Entitäten-Glossar (::: glossar am Dokumentende, idempotent)
+src/find-replace.js        Suchen & Ersetzen (Leiste unter der Toolbar, plain-text-basiert)
+src/ai-review.js           Prüf-Panel für KI-Vorschläge (Auswahl → ai-apply/ai-discard)
+src/component-setup.js     Aufbau von Controllern, Provider und Editor (Verdrahtung)
+src/toolbar-setup.js       Toolbar-Aufbau (Format- + Feature-Buttons, Roving-Tabindex)
+src/comments-ui.js         Kommentar-Panel (Node-Kommentare, Antworten, »Zitat«-Anker)
+src/comment-marks.js       gelbe In-Text-Markierung »Zitat«-verankerter Kommentare
+src/media-ui.js            Medienverwaltungs-Panel (Bilder: Vorschau, Einfügen, Löschen)
+src/export.js              Markdown-Download + Druckansicht (⬇ MD / 🖨)
+server/doc-blocks.js       Auto-Refresh von Inhaltsverzeichnis/Glossar bei jedem Save
+server/api-media.js        HTTP-Routen für Bilder + Kommentare (Session-Gate, Rate-Limit)
+server/images.js           Bild-Uploads als Child-IOs (mdimg-) + Verwaisten-Aufräumen beim Save
 src/annotations.js         Semantisches Tagging — pure Logik (pur, getestet)
 src/entity-types.js        Default-Katalog der Entitätstypen (pur, getestet)
 src/annotation-extension.js Tag-Anzeige als ProseMirror-Decorations

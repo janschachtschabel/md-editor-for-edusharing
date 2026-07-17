@@ -103,10 +103,13 @@ With a B-API key configured, the toolbar shows an **"🤖 AI tagging"** button:
 the AI briefly joins as a visible co-writer (presence chip "🤖 KI-Tagger"),
 detects **entities** (shortest possible exact quotes + type → pills/keywords)
 and **paragraph roles** (quote + role slug → `:::` blocks; sections spanning
-**multiple paragraphs** are wrapped as one), applies both to the shared
-document after validation, and leaves again. AI suggestions pass the exact
-same validation as human input (hallucinated quotes, crossing spans,
-duplicates and non-catalog roles are dropped). The API key never leaves the
+**multiple paragraphs** are wrapped as one), and presents the validated
+findings to the requester as a **review list** (checkboxes below the
+toolbar): only "Apply selected" writes them into the shared document,
+"Discard" drops them — application re-validates against the then-current
+state. AI suggestions pass the exact same validation as human input
+(hallucinated quotes, crossing spans, duplicates and non-catalog roles are
+dropped). The API key never leaves the
 server; triggering requires a write-enabled connection (enforced server-side
 and covered by tests). At most one AI run per document at a time, with a
 short wait between runs as a cost brake (`AI_COOLDOWN_MS`, default 30 s); if
@@ -159,6 +162,31 @@ nothing about edu-sharing — it only talks to the collab server.
 | `user-color` | no | cursor color (default: random) |
 | `token` | no | opaque session token from `POST /api/login`; missing (or invalid/expired) → read-only |
 | `read-only` | no | `"true"` forces read-only on the client side |
+| `viewer` | no | `"true"` enables **viewer mode**: read view without the toolbar, toggleable from outside (demo: switch in the left panel) |
+
+Two **injectable properties** keep the component repository-agnostic:
+`el.uploadImage = async (file) => url` turns the 🖼 button into a file upload
+(the demo uploads as a **series object/child-IO** under the node, `POST
+/api/nodes/:id/images`; on save the server cleans up editor images that are
+no longer referenced). Clicking an image reveals **size buttons S/M/L/⛶**
+(240/480/720 px/original): the width is stored as CommonMark-legal inline
+HTML `<img … width="…">`, rendered by GitHub & friends; without a width the
+image stays pure markdown and responsive via CSS. `el.commentsApi = {list, add, remove}` enables the 💬
+**comment panel** (right-edge slide-in): node comments from the edu-sharing
+API with replies (one level, native), deleting own posts, and an optional
+**text anchor** — an active selection is attached as a clickable »quote« that
+jumps back to the passage.
+`el.mediaApi = {list, remove}` turns the 🖼 button into the **media panel**
+(one entry point for everything image-related): ⬆ upload, 🔗 image URL, and
+management of the uploaded editor images — preview, "in text" badge,
+re-insert, delete (with a warning while still referenced). Without a
+mediaApi, 🖼 falls back to the file dialog (uploadImage) or the URL prompt.
+Anchored comments additionally mark their passage **yellow in the text**
+(clicking opens the panel at the comment). The toolbar can **download the
+current state as a markdown file (⬇ MD**, filename = node id) and
+**print (🖨)** — printing opens a dedicated window containing only the
+document (works in webviews without their own print preview; Ctrl+P on the
+page stays clean via print CSS too).
 | `lang` | no | UI language (`de`/`en`, default `de`) — toolbar, dialogs, error messages |
 
 ### Events (out, CustomEvent with `detail`)
@@ -348,6 +376,19 @@ src/md-collab-editor.js    web component
 src/toolbar.js             toolbar definition
 src/save-state.js          save-bar logic (pure, unit-tested)
 src/save-bar.js            save-bar controller (DOM, server events, ticker)
+src/toc.js                 table of contents (::: inhaltsverzeichnis in the document, link jump marks)
+src/glossary.js            entity glossary (::: glossar at the end of the document, idempotent)
+src/find-replace.js        find & replace (bar below the toolbar, plain-text based)
+src/ai-review.js           review panel for AI suggestions (selection → ai-apply/ai-discard)
+src/component-setup.js     construction of controllers, provider and editor (wiring)
+src/toolbar-setup.js       toolbar assembly (format + feature buttons, roving tabindex)
+src/comments-ui.js         comment panel (node comments, replies, »quote« anchors)
+src/comment-marks.js       yellow in-text marks for »quote«-anchored comments
+src/media-ui.js            media management panel (images: preview, insert, delete)
+src/export.js              markdown download + print view (⬇ MD / 🖨)
+server/doc-blocks.js       auto-refresh of TOC/glossary on every save
+server/api-media.js        HTTP routes for images + comments (session gate, rate limit)
+server/images.js           image uploads as child-IOs (mdimg-) + orphan cleanup on save
 src/annotations.js         semantic tagging — pure logic (unit-tested)
 src/entity-types.js        default entity-type catalog (unit-tested)
 src/annotation-extension.js tag rendering as ProseMirror decorations

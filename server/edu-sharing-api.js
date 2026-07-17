@@ -194,3 +194,51 @@ export async function saveMarkdown(nodeId, mode, markdown, auth) {
     auth,
   })
 }
+
+// ------------------------------------------------------------- Comments ---
+/**
+ * Node comments (edu-sharing comment API). `currentAuthority` lets the
+ * caller flag the user's own comments (delete permission). Sorted by
+ * creation time — the API returns unspecified order.
+ */
+export async function listComments(nodeId, auth, currentAuthority = null) {
+  const data = await eduFetch(`/comment/v1/comments/-home-/${nodeId}`, { auth })
+  return (data?.comments || [])
+    .map((c) => ({
+      id: c.ref?.id,
+      replyTo: c.replyTo || null,
+      text: c.comment || '',
+      created: c.created || 0,
+      author: c.creator?.profile
+        ? `${c.creator.profile.firstName || ''} ${c.creator.profile.lastName || ''}`.trim() || c.creator.authorityName
+        : c.creator?.authorityName || '?',
+      isOwn: Boolean(currentAuthority) && c.creator?.authorityName === currentAuthority,
+    }))
+    .sort((a, b) => a.created - b.created)
+}
+
+/**
+ * Write a comment (optionally as reply via commentReference). Content-Type
+ * MUST be application/json with the RAW utf-8 text as body — text/plain
+ * returns 415, JSON-quoting stores literal quotes (verified 05/2026).
+ */
+export async function addComment(nodeId, text, auth, replyTo = null) {
+  const q = replyTo ? `?commentReference=${encodeURIComponent(replyTo)}` : ''
+  await eduFetch(`/comment/v1/comments/-home-/${nodeId}${q}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json;charset=UTF-8' },
+    body: text,
+    auth,
+  })
+}
+
+/** Delete a comment (owner or coordinator). Some repository versions want
+ * the path without the -home- segment — fall back on 404. */
+export async function deleteComment(commentId, auth) {
+  try {
+    await eduFetch(`/comment/v1/comments/-home-/${commentId}`, { method: 'DELETE', auth })
+  } catch (err) {
+    if (err.status !== 404) throw err
+    await eduFetch(`/comment/v1/comments/${commentId}`, { method: 'DELETE', auth })
+  }
+}

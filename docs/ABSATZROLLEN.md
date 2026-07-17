@@ -15,6 +15,14 @@ Ebene-1-Typen als Block-Rollen").
 | Editor-Styling (Container + Label-Chip) | [public/style.css](../public/style.css) |
 | Tests: Roundtrip `:::`, Katalog-Split, `roleSlug`/`roleLabel`, Select/Chips im jsdom-Harness | `test/roundtrip.test.mjs`, `test/entity-types.test.mjs`, `test/component.test.mjs` |
 
+**Reservierte freie Slugs:** `glossar` (Glossar-Feature,
+[src/glossary.js](../src/glossary.js), 📇-Button) und `inhaltsverzeichnis`
+(Inhaltsverzeichnis, [src/toc.js](../src/toc.js), ☰-Button) werden als feste
+Anker genutzt — die Buttons ersetzen einen vorhandenen Block statt einen
+zweiten anzuhängen, und der Server bringt BEIDE Blöcke bei jedem Speichern
+automatisch auf den aktuellen Stand ([server/doc-blocks.js](../server/doc-blocks.js)).
+Als manuelle Rollen daher besser nicht zweckentfremden.
+
 Rollen erreichen `cclom:general_keyword` **per Konstruktion** nie — sie stehen im
 Markdown (Compendium-Property), Entitäten laufen weiter über den Standoff→Keyword-Pfad.
 

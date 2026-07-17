@@ -23,6 +23,7 @@ import {
 import {
   buildDocumentName, checkWriteAccess, getNodeInfo, normalizeField, validateLogin,
 } from './server/edu-sharing-api.js'
+import { registerMediaRoutes } from './server/api-media.js'
 import {
   broadcastConfig, docState, hocuspocus, persistDocument,
 } from './server/collab.js'
@@ -62,7 +63,8 @@ if (ALLOWED_ORIGINS.length > 0) {
       res.setHeader('Access-Control-Allow-Origin', origin)
       res.setHeader('Vary', 'Origin')
       res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type')
-      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+      // DELETE covers comment removal (server/api-media.js) from an embed
+      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS')
     }
     if (req.method === 'OPTIONS') return res.sendStatus(204)
     next()
@@ -150,6 +152,9 @@ app.post('/api/logout', (req, res) => {
   closeSessionConnections(token)
   res.sendStatus(204)
 })
+
+// Image upload (child-IOs) + node comments — server/api-media.js
+registerMediaRoutes(app)
 
 /** Node info + save status for the host page (session token or Basic passthrough). */
 app.get('/api/nodes/:id', async (req, res) => {

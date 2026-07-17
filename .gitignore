@@ -24,3 +24,8 @@ mds.json
 *.log
 .vscode/
 .idea/
+
+# Arbeitsartefakte (Audit-Berichte, lokale Notizen)
+docs/audits/
+serverupdate.txt
+mds.json

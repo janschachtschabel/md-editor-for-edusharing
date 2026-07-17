@@ -30,6 +30,31 @@ const mock = http.createServer((req, res) => {
     if (!known) { res.statusCode = 401; return res.end('{}') }
     return res.end(JSON.stringify({ person: { authorityName: auth === READER ? 'reader' : 'writer' } }))
   }
+  if (req.url.includes('/children') && req.method === 'POST') {
+    if (auth !== WRITER && auth !== TICKET) { res.statusCode = 403; return res.end('{}') }
+    return res.end(JSON.stringify({ node: { ref: { id: '99999999-9999-4999-8999-999999999999' } } }))
+  }
+  if (req.url.includes('/content') && req.method === 'POST') return res.end('{}')
+  if (req.url.includes('/children') && req.method === 'GET') {
+    return res.end(JSON.stringify({ nodes: [
+      { ref: { id: '22222222-2222-4222-8222-222222222222' }, name: 'mdimg-foto.png', aspects: ['ccm:io_childobject'] },
+      { ref: { id: '33333333-3333-4333-8333-333333333333' }, name: 'material.pdf', aspects: ['ccm:io_childobject'] },
+    ] }))
+  }
+  if (req.method === 'DELETE' && req.url.includes('/node/')) {
+    if (!known) { res.statusCode = 401; return res.end('{}') }
+    return res.end('{}')
+  }
+  if (req.url.includes('/comment/')) {
+    if (req.method === 'GET') {
+      return res.end(JSON.stringify({ comments: [{
+        ref: { id: '11111111-1111-4111-8111-111111111111' }, replyTo: null, created: 1,
+        comment: 'Hallo', creator: { authorityName: 'writer' },
+      }] }))
+    }
+    if (!known) { res.statusCode = 401; return res.end('{}') }
+    return res.end('{}')
+  }
   if (req.url.includes('/metadata')) {
     // Writer and ticket user have Write access, reader/anonymous only Read
     const access = (auth === WRITER || auth === TICKET) ? ['Read', 'Write'] : ['Read']
@@ -144,13 +169,95 @@ try {
     (await post('/api/nodes/00000000-0000-4000-8000-000000000001/save', { Authorization: `Bearer ${ticketLogin.token}` })).status === 404)
   check('invalid ticket → 401', (await post('/api/login', {}, { ticket: 'wrong' })).status === 401)
 
-  // F-05: login rate limit (max 6 per window in this test config; the four
-  // login attempts above already consumed four slots)
+  // --- media + comment routes (audit T-2): HTTP gates over real requests ---
+  {
+    const w = await (await post('/api/login', {}, { username: 'writer', password: 'pw' })).json()
+    const B = { Authorization: `Bearer ${w.token}` }
+    const NODE = '00000000-0000-4000-8000-000000000001'
+    const img = (headers, body = Buffer.from([137, 80, 78, 71])) =>
+      fetch(`${APP}/api/nodes/${NODE}/images?filename=a.png`, { method: 'POST', headers, body })
+    check('image upload without session → 401', (await img({ 'Content-Type': 'image/png' })).status === 401)
+    check('image upload with non-image mime → 415',
+      (await img({ 'Content-Type': 'application/pdf', ...B })).status === 415)
+    check('image upload with SVG is rejected (S-1: script-capable format)',
+      (await img({ 'Content-Type': 'image/svg+xml', ...B })).status === 415)
+    const up = await img({ 'Content-Type': 'image/png', ...B })
+    const upJson = up.ok ? await up.json() : {}
+    check('image upload creates the child-IO and returns the stable url',
+      up.status === 200 && upJson.url?.includes('eduservlet/download?nodeId=99999999'), upJson)
+
+    check('comment post without session → 401',
+      (await post(`/api/nodes/${NODE}/comments`, {}, { text: 'x' })).status === 401)
+    check('comment post with empty text → 400',
+      (await post(`/api/nodes/${NODE}/comments`, B, { text: '   ' })).status === 400)
+    check('comment post with session → 204',
+      (await post(`/api/nodes/${NODE}/comments`, B, { text: 'Hallo' })).status === 204)
+    const list = await (await fetch(`${APP}/api/nodes/${NODE}/comments`, { headers: B })).json()
+    check('comment list flags own comments via the session authority',
+      list.comments?.length === 1 && list.comments[0].isOwn === true, list)
+    check('comment delete → 204',
+      (await fetch(`${APP}/api/comments/11111111-1111-4111-8111-111111111111`,
+        { method: 'DELETE', headers: B })).status === 204)
+
+    // Media management routes: list is a read (anonymous ok where the repo
+    // allows), delete is session-gated AND refuses non-editor children
+    const EDITOR_IMG = '22222222-2222-4222-8222-222222222222'
+    const FOREIGN_CHILD = '33333333-3333-4333-8333-333333333333'
+    const ilist = await (await fetch(`${APP}/api/nodes/${NODE}/images`)).json()
+    check('image list returns ONLY editor images (mdimg prefix), readable without session',
+      ilist.images?.length === 1 && ilist.images[0].imageId === EDITOR_IMG
+      && ilist.images[0].url.includes(`eduservlet/download?nodeId=${EDITOR_IMG}`), ilist)
+    check('image delete without session → 401',
+      (await fetch(`${APP}/api/nodes/${NODE}/images/${EDITOR_IMG}`, { method: 'DELETE' })).status === 401)
+    check('image delete refuses foreign (non-mdimg) children → 404',
+      (await fetch(`${APP}/api/nodes/${NODE}/images/${FOREIGN_CHILD}`, { method: 'DELETE', headers: B })).status === 404)
+    check('image delete for an editor image → 204',
+      (await fetch(`${APP}/api/nodes/${NODE}/images/${EDITOR_IMG}`, { method: 'DELETE', headers: B })).status === 204)
+
+    // P-4: write routes are rate-limited per IP (spam brake for logged-in users)
+    let limited = false
+    for (let i = 0; i < 40 && !limited; i++) {
+      limited = (await post(`/api/nodes/${NODE}/comments`, B, { text: `spam ${i}` })).status === 429
+    }
+    check('write routes are rate-limited (429 after sustained posting)', limited)
+  }
+
+  // CORS: a cross-origin embed (ALLOWED_ORIGINS set) must be able to preflight
+  // the DELETE comment route — the main test instance runs without CORS, so a
+  // dedicated instance with an allowlist is needed to catch a missing method.
+  {
+    const APP2 = 'http://127.0.0.1:3803'
+    const server2 = spawn(process.execPath, ['server.js'], {
+      cwd: ROOT,
+      env: {
+        ...process.env,
+        PORT: '3803', EDU_REPO_BASE_URL: `http://127.0.0.1:${MOCK_PORT}`,
+        EDU_USER: '', EDU_PASS: '', ALLOWED_ORIGINS: 'https://embed.example',
+      },
+      stdio: 'ignore',
+    })
+    try {
+      check('CORS test instance becomes healthy', await waitFor(`${APP2}/health`))
+      const pre = await fetch(`${APP2}/api/comments/11111111-1111-4111-8111-111111111111`, {
+        method: 'OPTIONS',
+        headers: { Origin: 'https://embed.example', 'Access-Control-Request-Method': 'DELETE' },
+      })
+      const methods = pre.headers.get('access-control-allow-methods') || ''
+      check('CORS preflight allows DELETE (comment removal from a cross-origin embed)',
+        pre.status === 204 && methods.includes('DELETE'), `status=${pre.status} methods=${methods}`)
+    } finally {
+      server2.kill()
+    }
+  }
+
+  // F-05: login rate limit (max 6 per window in this test config; the FIVE
+  // login attempts above — four auth-flow logins + the media-block login —
+  // already consumed five slots, so exactly one attempt still passes)
   const codes = []
   for (let i = 0; i < 3; i++) {
     codes.push((await post('/api/login', {}, { username: 'writer', password: 'wrong' })).status)
   }
-  check('remaining attempts reach edu-sharing (401)', codes[0] === 401 && codes[1] === 401, JSON.stringify(codes))
+  check('remaining attempt reaches edu-sharing (401)', codes[0] === 401 && codes[1] === 429, JSON.stringify(codes))
   check('further attempts are rate-limited (429)', codes[2] === 429, JSON.stringify(codes))
 } finally {
   server.kill()

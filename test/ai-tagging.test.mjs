@@ -144,24 +144,93 @@ check('re-run adds nothing (duplicates + already-roled block skipped)',
   gateDoc.broadcastStateless = (s) => gateBroadcasts.push(JSON.parse(s))
 
   const callsBefore = modelCalls
+  const sentToGate = []
   await onStateless({
     payload: JSON.stringify({ event: 'ai-tag' }),
     document: gateDoc, documentName: 'gate-doc',
-    connection: { readOnly: true },
+    connection: { readOnly: true, sendStateless: (s) => sentToGate.push(JSON.parse(s)) },
   })
   check('read-only connection: model NOT called', modelCalls === callsBefore)
-  check('read-only connection: no-write error broadcast',
-    gateBroadcasts.some((b) => b.event === 'ai-status' && b.code === 'no-write'), gateBroadcasts)
+  // The rejection concerns nobody but the requester — a broadcast would flash
+  // the error on every other client's toolbar
+  check('read-only connection: no-write error goes to the requester ONLY',
+    sentToGate.some((b) => b.event === 'ai-status' && b.code === 'no-write')
+    && !gateBroadcasts.some((b) => b.code === 'no-write'), { sentToGate, gateBroadcasts })
   check('read-only connection: document unchanged',
     gateDoc.getArray('annotations').length === 0)
 
+  // Writable trigger → REVIEW mode (audit roadmap): the model's validated
+  // suggestions go back to the REQUESTING connection only; nothing is
+  // applied until the user confirms via ai-apply.
+  const sentToRequester = []
   await onStateless({
     payload: JSON.stringify({ event: 'ai-tag' }),
     document: gateDoc, documentName: 'gate-doc',
+    connection: { readOnly: false, sendStateless: (s) => sentToRequester.push(JSON.parse(s)) },
+  })
+  const review = sentToRequester.find((m) => m.event === 'ai-status' && m.phase === 'review')
+  check('writable connection: model called, suggestions sent for review, NOTHING applied',
+    modelCalls === callsBefore + 1 && gateDoc.getArray('annotations').length === 0
+    && review && review.entities.length === 2 && review.roles.length === 2,
+    { calls: modelCalls - callsBefore, review })
+  check('review pending is announced to all clients',
+    gateBroadcasts.some((b) => b.phase === 'suggested' && b.count === 4), gateBroadcasts)
+
+  // read-only connections must not apply pending suggestions either
+  await onStateless({
+    payload: JSON.stringify({ event: 'ai-apply', keepEntities: [0, 1], keepRoles: [0, 1] }),
+    document: gateDoc, documentName: 'gate-doc',
+    connection: { readOnly: true },
+  })
+  check('read-only ai-apply is rejected', gateDoc.getArray('annotations').length === 0)
+
+  // partial apply: keep one entity + one role only
+  await onStateless({
+    payload: JSON.stringify({ event: 'ai-apply', keepEntities: [1], keepRoles: [0] }),
+    document: gateDoc, documentName: 'gate-doc',
     connection: { readOnly: false },
   })
-  check('writable connection: model called + tags applied',
-    modelCalls === callsBefore + 1 && gateDoc.getArray('annotations').length === 2)
+  const appliedAnns = gateDoc.getArray('annotations').toArray()
+  const gateMd = htmlToMarkdown(generateHTML(TiptapTransformer.fromYdoc(gateDoc, 'default'), extensions))
+  check('ai-apply applies ONLY the kept suggestions',
+    appliedAnns.length === 1 && appliedAnns[0].quote === 'Anna Mueller'
+    && (gateMd.match(/^::: [a-z]/gm) || []).length === 1, { appliedAnns, gateMd })
+  check('apply broadcasts done with the applied counts',
+    gateBroadcasts.some((b) => b.phase === 'done' && b.entities === 1 && b.roles === 1), gateBroadcasts)
+
+  // applying again without pending suggestions → explicit error, no change
+  await onStateless({
+    payload: JSON.stringify({ event: 'ai-apply', keepEntities: [0], keepRoles: [] }),
+    document: gateDoc, documentName: 'gate-doc',
+    connection: { readOnly: false },
+  })
+  check('ai-apply without pending suggestions reports no-pending',
+    gateBroadcasts.some((b) => b.code === 'no-pending')
+    && gateDoc.getArray('annotations').length === 1, gateBroadcasts.at(-1))
+
+  // discard clears the pending set (own doc name — gate-doc is in cooldown)
+  const discardDoc = TiptapTransformer.toYdoc(generateJSON(markdownToHtml(MD), extensions), 'default', extensions)
+  const discardBroadcasts = []
+  discardDoc.broadcastStateless = (s) => discardBroadcasts.push(JSON.parse(s))
+  await onStateless({
+    payload: JSON.stringify({ event: 'ai-tag' }),
+    document: discardDoc, documentName: 'discard-doc',
+    connection: { readOnly: false, sendStateless: () => {} },
+  })
+  await onStateless({
+    payload: JSON.stringify({ event: 'ai-discard' }),
+    document: discardDoc, documentName: 'discard-doc',
+    connection: { readOnly: false },
+  })
+  await onStateless({
+    payload: JSON.stringify({ event: 'ai-apply', keepEntities: [0], keepRoles: [] }),
+    document: discardDoc, documentName: 'discard-doc',
+    connection: { readOnly: false },
+  })
+  check('discard clears pending suggestions (later apply finds none)',
+    discardBroadcasts.some((b) => b.phase === 'discarded')
+    && discardBroadcasts.some((b) => b.code === 'no-pending')
+    && discardDoc.getArray('annotations').length === 0, discardBroadcasts)
 }
 
 // --- busy lock: only one run per document at a time -------------------------------

@@ -132,10 +132,9 @@ async function callModel(markdown, existingEntities) {
  * quotes wording, not markdown syntax; bold marks and turndown escaping would
  * otherwise reject valid suggestions (audit KW-1).
  */
-function applyEntities(document, markdown, suggestions) {
+function validEntities(document, markdown, suggestions) {
   const plain = markdownToPlainText(markdown)
-  const arr = document.getArray('annotations')
-  const current = arr.toArray()
+  const current = document.getArray('annotations').toArray()
   const resolved = resolveAnnotations(current, plain).filter((a) => a.start !== null)
   const added = []
   for (const s of suggestions) {
@@ -151,7 +150,12 @@ function applyEntities(document, markdown, suggestions) {
     if (crosses) continue
     added.push({ id: randomUUID(), quote, occurrence: 1, type })
   }
-  if (added.length) arr.push(added)
+  return added
+}
+
+function applyEntities(document, markdown, suggestions) {
+  const added = validEntities(document, markdown, suggestions)
+  if (added.length) document.getArray('annotations').push(added)
   return added.length
 }
 
@@ -174,6 +178,28 @@ function ytextOf(node) {
 // Unlike manual tagging (free roles allowed), AI-suggested roles must come
 // from the catalog — the model is untrusted input and must not invent roles.
 const KNOWN_ROLES = new Set(DEFAULT_BLOCK_ROLES.map((r) => r.slug))
+
+/** Role suggestions that pass validation AND anchor to a not-yet-roled block
+ * (dry counterpart of applyRoles, which re-validates at apply time). */
+function validRoles(document, suggestions) {
+  const frag = document.getXmlFragment('default')
+  const out = []
+  for (const s of suggestions) {
+    const quote = typeof s?.quote === 'string' ? s.quote.trim() : ''
+    const rawEnd = typeof s?.endQuote === 'string' ? s.endQuote.trim() : ''
+    const slug = roleSlug(typeof s?.role === 'string' ? s.role : '')
+    if (!quote || quote.includes('\n') || !KNOWN_ROLES.has(slug)) continue
+    let found = false
+    for (let i = 0; i < frag.length; i++) {
+      const child = frag.get(i)
+      if (!(child instanceof Y.XmlElement) || child.nodeName === 'roleBlock') continue
+      if (ytextOf(child).includes(quote)) { found = true; break }
+    }
+    if (!found) continue
+    out.push({ quote, endQuote: rawEnd.includes('\n') ? '' : rawEnd, role: slug })
+  }
+  return out
+}
 
 /**
  * Wrap the top-level blocks matched by the role suggestions in roleBlock
@@ -241,11 +267,25 @@ function applyRoles(document, suggestions) {
 
 // ------------------------------------------------------------------ Run ---
 /**
- * Full tagging cycle: join as presence → ask the model → validate & apply →
- * report via stateless broadcast → leave. Never throws; errors are broadcast
- * as {event:'ai-status', phase:'error', code} and returned.
+ * Validated-but-not-yet-applied suggestions per document (review mode):
+ * overwritten by every new run, consumed by ai-apply, cleared by ai-discard
+ * and on document unload.
  */
-export async function runAiTagging({ document, documentName, markdown }) {
+const pending = new Map()
+
+/** Drop pending suggestions on unload (collab.js afterUnloadDocument). */
+export function clearPendingSuggestions(documentName) {
+  pending.delete(documentName)
+}
+
+/**
+ * Full tagging cycle: join as presence → ask the model → validate → report.
+ * With a `connection` (review mode, the normal editor path) the validated
+ * suggestions are sent back to the REQUESTING connection only and applied
+ * later via applyPendingSuggestions; without one they are applied directly.
+ * Never throws; errors are broadcast as {event:'ai-status', phase:'error'}.
+ */
+export async function runAiTagging({ document, documentName, markdown, connection = null }) {
   if (!aiConfigured()) {
     notify(document, { phase: 'error', code: 'not-configured' })
     return { entities: 0, roles: 0, error: 'not-configured' }
@@ -270,6 +310,22 @@ export async function runAiTagging({ document, documentName, markdown }) {
   try {
     const existing = document.getArray('annotations').toArray()
     const suggestions = await callModel(markdown, existing)
+    if (connection) {
+      const entities = validEntities(document, markdown, suggestions.entities)
+        .map(({ quote, type }) => ({ quote, type }))
+      const roles = validRoles(document, suggestions.roles)
+      if (!entities.length && !roles.length) {
+        notify(document, { phase: 'done', entities: 0, roles: 0 })
+        return { entities: 0, roles: 0 }
+      }
+      pending.set(documentName, { entities, roles })
+      try {
+        connection.sendStateless(JSON.stringify({ event: 'ai-status', phase: 'review', entities, roles }))
+      } catch { /* requester gone — suggestions stay pending for a re-request */ }
+      notify(document, { phase: 'suggested', count: entities.length + roles.length })
+      console.log(`[ai] ${documentName}: ${entities.length} entities + ${roles.length} roles suggested (review, model ${AI_MODEL})`)
+      return { suggested: entities.length + roles.length }
+    }
     const entities = applyEntities(document, markdown, suggestions.entities)
     const roles = applyRoles(document, suggestions.roles)
     console.log(`[ai] ${documentName}: ${entities} entities, ${roles} roles (model ${AI_MODEL})`)
@@ -284,4 +340,28 @@ export async function runAiTagging({ document, documentName, markdown }) {
     running.delete(documentName)
     rememberRun(documentName)
   }
+}
+
+/**
+ * Apply the user-confirmed subset of the pending suggestions (review mode).
+ * Both apply paths re-validate against the CURRENT document, so suggestions
+ * gone stale between review and confirmation are skipped safely.
+ */
+export function applyPendingSuggestions(document, documentName, markdown, { keepEntities = [], keepRoles = [] } = {}) {
+  const p = pending.get(documentName)
+  if (!p) {
+    notify(document, { phase: 'error', code: 'no-pending' })
+    return { entities: 0, roles: 0, error: 'no-pending' }
+  }
+  pending.delete(documentName)
+  const entities = applyEntities(document, markdown, keepEntities.map((i) => p.entities[i]).filter(Boolean))
+  const roles = applyRoles(document, keepRoles.map((i) => p.roles[i]).filter(Boolean))
+  console.log(`[ai] ${documentName}: applied ${entities} entities, ${roles} roles after review`)
+  notify(document, { phase: 'done', entities, roles })
+  return { entities, roles }
+}
+
+/** Discard the pending suggestions without applying anything. */
+export function discardPendingSuggestions(document, documentName) {
+  if (pending.delete(documentName)) notify(document, { phase: 'discarded' })
 }

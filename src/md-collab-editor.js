@@ -14,6 +14,8 @@
  *                     (validated there). Without a token the server switches
  *                     the connection to read-only.
  *     read-only       "true" → editor not editable (in addition to the server gate)
+ *     viewer          "true" → read view without the toolbar (externally
+ *                     toggleable at runtime, e.g. by the embedding page)
  *     lang            UI language: "de" (default) | "en". Only affects
  *                     displayed text (toolbar, dialogs, save bar) — the
  *                     default entity-type catalog VALUES persisted to
@@ -27,6 +29,16 @@
  *     users-change      {users: [{name, color, isSelf, active}]}
  *     save-state-change {dirty, saving, lastSavedAt, autosave, canPersist, error, …}
  *     synced            {}          — initial server synchronization finished
+ *
+ *   Properties (in, host-injected — keep the component repository-agnostic):
+ *     uploadImage      async (File) => url — replaces the image-URL prompt
+ *                      with a file picker; the host uploads (e.g. as an
+ *                      edu-sharing child-IO) and returns the embed URL
+ *     commentsApi      {list(), add(text, replyTo), remove(id)} — enables the
+ *                      💬 node-comment panel (right-edge slide-in); comments
+ *                      with a »quote« anchor also mark their passage in-text
+ *     mediaApi         {list(), remove(imageId)} — enables the 🗂 media panel
+ *                      (uploaded editor images: thumbnails, re-insert, delete)
  *
  *   Methods:
  *     getMarkdown(): string
@@ -42,19 +54,13 @@
  *   and the save bar (LED, countdown until autosave, "Speichern" button). The
  *   save state is broadcast by the collab server and consistent for all clients.
  */
-import { Editor } from '@tiptap/core'
-import { Placeholder } from '@tiptap/extensions'
-import Collaboration from '@tiptap/extension-collaboration'
-import CollaborationCaret from '@tiptap/extension-collaboration-caret'
-import { HocuspocusProvider } from '@hocuspocus/provider'
-import { createExtensions } from './extensions.js'
 import { htmlToMarkdown } from './markdown.js'
-import { SaveBarUi } from './save-bar.js'
-import { TOOLBAR } from './toolbar.js'
-import { AnnotationDecorations } from './annotation-extension.js'
-import { AnnotationController } from './annotation-controller.js'
-import { PresenceTracker } from './presence.js'
-import { RoleUi } from './role-ui.js'
+import { setupComponent } from './component-setup.js'
+import { buildToolbar } from './toolbar-setup.js'
+import { findHeadingBySlug, collectHeadings } from './toc.js'
+import { buildTextIndex } from './annotation-extension.js'
+import { ySyncPluginKey, relativePositionToAbsolutePosition } from 'y-prosemirror'
+import { createRelativePositionFromJSON } from 'yjs'
 import { t, setActiveLang, LANGS, DEFAULT_LANG } from './i18n.js'
 
 // User colors for carets/presence chips — all chosen for ≥4.5:1 contrast
@@ -63,7 +69,7 @@ const COLORS = ['#b3261e', '#0b57d0', '#146c2e', '#9a4600', '#7b1fa2', '#00695c'
 
 class MdCollabEditor extends HTMLElement {
   static get observedAttributes() {
-    return ['read-only', 'user-name']
+    return ['read-only', 'user-name', 'viewer']
   }
 
   connectedCallback() {
@@ -89,6 +95,10 @@ class MdCollabEditor extends HTMLElement {
     this.classList.add('mce-root')
     this.innerHTML = `
       <div class="mce-toolbar" part="toolbar" role="toolbar" aria-label="${t(this._lang, 'editor.toolbarLabel')}"></div>
+      <div class="mce-find" part="find" role="search" hidden></div>
+      <div class="mce-ai-review" part="ai-review" hidden></div>
+      <div class="mce-comments" part="comments" hidden></div>
+      <div class="mce-media" part="media" hidden></div>
       <div class="mce-roles" part="roles" role="list" aria-label="${t(this._lang, 'editor.rolesLabel')}" style="display:none"></div>
       <div class="mce-entities" part="entities" role="list" aria-label="${t(this._lang, 'editor.entitiesLabel')}" style="display:none"></div>
       <div class="mce-editor" part="editor"></div>
@@ -101,95 +111,8 @@ class MdCollabEditor extends HTMLElement {
     this._usersEl.className = 'mce-users'
     this._usersEl.setAttribute('part', 'users')
 
-    // Save bar (LED + countdown + "Speichern" button) — state, DOM and server
-    // events live in the controller (src/save-bar.js)
-    this._saveBar = new SaveBarUi({
-      getLang: () => this._lang,
-      sendSave: () => this.provider.sendStateless(JSON.stringify({ event: 'save' })),
-      onStateChange: (state) => this._emit('save-state-change', state),
-    })
-
-    this.provider = new HocuspocusProvider({
-      url: wsUrl,
-      name: documentName,
-      token: token || 'anonymous',
-      onStatus: ({ status }) => this._emit('status-change', { status }),
-      // The server REJECTS presented-but-invalid tokens (expired 8 h session,
-      // logout on another tab/device). Stop the provider's reconnect loop —
-      // every retry would be rejected again — and tell the host WHY, instead
-      // of showing a bare "disconnected" (audit UX-1).
-      onAuthenticationFailed: () => {
-        this.provider.disconnect()
-        this._emit('status-change', { status: 'session-expired' })
-      },
-      onSynced: () => {
-        this._saveBar.markSynced()
-        // Ask the server for the save state (answered by a config broadcast)
-        this.provider.sendStateless(JSON.stringify({ event: 'hello' }))
-        this._emit('synced', {})
-      },
-      onStateless: ({ payload }) => this._onStateless(payload),
-    })
-
-    // Standoff annotations: shared Y.Array in the SAME Yjs document as the
-    // text — tags and text synchronize over one channel and are seeded/
-    // persisted together by the server (general keywords "Name (Typ)").
-    // Feature logic lives in the controller (src/annotation-controller.js).
-    this._tags = new AnnotationController({
-      root: this,
-      entitiesEl: this._entitiesEl,
-      annotations: this.provider.document.getArray('annotations'),
-      getEditor: () => this.editor,
-      getLang: () => this._lang,
-      getLocked: () => this._plainKeywords || [],
-      onChange: () => this._onAnnotationsChanged(),
-    })
-
-    // Paragraph-role UI (select + amber chips bar) — src/role-ui.js
-    this._roles = new RoleUi({
-      rolesEl: this._rolesEl,
-      getEditor: () => this.editor,
-      getLang: () => this._lang,
-    })
-
-    // Presence: awareness tracking + chips live in src/presence.js (F-T5);
-    // the component only re-emits the user list as its public event
-    this._presence = new PresenceTracker({
-      provider: this.provider,
-      usersEl: this._usersEl,
-      getLang: () => this._lang,
-      onUsers: (users) => this._emit('users-change', { users }),
-    })
-
-    this.editor = new Editor({
-      element: this.querySelector('.mce-editor'),
-      editable: !readOnly,
-      extensions: [
-        ...createExtensions(),
-        Placeholder.configure({ placeholder: t(this._lang, 'editor.placeholder') }),
-        AnnotationDecorations.configure({
-          getAnnotations: () => this._tags.raw(),
-          onAnnotationClick: (hits, event) => this._tags.handleClick(hits, event),
-        }),
-        Collaboration.configure({ document: this.provider.document }),
-        CollaborationCaret.configure({
-          provider: this.provider,
-          user: { name: userName, color: userColor },
-        }),
-      ],
-      onTransaction: () => this._updateToolbar(),
-      onUpdate: () => {
-        this._scheduleMarkdownEmit()
-        this._roles.renderChips() // roles live in the doc → refresh on every change
-        // Track changes (own AND remote) for the save countdown
-        this._saveBar.noteChange()
-      },
-      onCreate: () => this._emit('editor-ready', { editor: this.editor }),
-    })
-
-    this._renderToolbar()
-    this._tags.renderChips()
-    this._roles.renderChips()
+    // Controllers, provider, editor and all wiring — src/component-setup.js
+    setupComponent(this, { wsUrl, documentName, token, userName, userColor, readOnly })
 
     // Warn on leave if unsaved changes would be lost (autosave off — with
     // autosave on the server itself saves on the last disconnect)
@@ -217,17 +140,26 @@ class MdCollabEditor extends HTMLElement {
 
   attributeChangedCallback(name, _old, value) {
     if (!this.editor) return
-    if (name === 'read-only') {
-      // Suppress TipTap's update emit — it would mark the doc dirty without a
-      // document change (audit 7, N-2); refresh the affected UI explicitly
-      this.editor.setEditable(value !== 'true', false)
-      this._updateToolbar()
-      this._roles.renderChips()
-      this._tags.renderChips()
-    }
+    if (name === 'read-only' || name === 'viewer') this._applyMode()
     if (name === 'user-name') {
       this.editor.chain().updateUser({ name: value, color: this.getAttribute('user-color') }).run()
     }
+  }
+
+  /** Apply the read-only/viewer attributes: viewer = read view without the
+   * toolbar (externally controlled), read-only = non-editable with toolbar. */
+  _applyMode() {
+    const viewer = this.getAttribute('viewer') === 'true'
+    const readOnly = this.getAttribute('read-only') === 'true'
+    this.classList.toggle('mce-viewer', viewer)
+    const bar = this.querySelector('.mce-toolbar')
+    if (bar) bar.hidden = viewer
+    // Suppress TipTap's update emit — a mode switch is not a document change
+    // and must not mark the doc dirty (audit 7, N-2); refresh UI explicitly
+    this.editor.setEditable(!viewer && !readOnly, false)
+    this._updateToolbar()
+    this._roles.renderChips()
+    this._tags.renderChips()
   }
 
   // ------------------------------------------------------------- Public ---
@@ -251,6 +183,106 @@ class MdCollabEditor extends HTMLElement {
     this.editor?.chain().focus().run()
   }
 
+  /** Host-injected comment API {list, add(text, replyTo), remove(id)} —
+   * setting it reveals the 💬 button (see src/comments-ui.js). */
+  set commentsApi(api) {
+    this._commentsApi = api || null
+    if (this._comments?.button) this._comments.button.style.display = api ? '' : 'none'
+    // Feed the in-text comment marks without waiting for the panel to open
+    if (api && this._comments && this.editor) this._comments.preload()
+  }
+
+  get commentsApi() {
+    return this._commentsApi || null
+  }
+
+  /** Host-injected upload callback async (File) => url. As an accessor so
+   * post-mount injection also updates the 🖼 tooltip. */
+  set uploadImage(fn) {
+    this._uploadImage = fn || null
+    this._syncImageButton()
+  }
+
+  get uploadImage() {
+    return this._uploadImage || null
+  }
+
+  /** Host-injected media API {list, remove(imageId)} — the 🖼 button then
+   * opens the media panel (upload ⬆ / URL 🔗 / manage, src/media-ui.js)
+   * instead of acting directly. */
+  set mediaApi(api) {
+    this._mediaApi = api || null
+    this._syncImageButton()
+  }
+
+  get mediaApi() {
+    return this._mediaApi || null
+  }
+
+  /** 🖼 is the single image entry point — its tooltip mirrors the injected
+   * capabilities (media panel > upload picker > URL prompt). */
+  _syncImageButton() {
+    const btn = this.querySelector('.mce-toolbar button[data-cmd="image"]')
+    if (!btn) return
+    const key = this._mediaApi ? 'toolbar.imageMedia'
+      : this._uploadImage ? 'toolbar.imageUpload' : 'toolbar.image'
+    const title = t(this._lang, key)
+    btn.title = title
+    btn.setAttribute('aria-label', title)
+  }
+
+  /** File picker for the image upload path (uploadImage callback is set). */
+  _pickImage() {
+    if (!this._imageInput) {
+      this._imageInput = document.createElement('input')
+      this._imageInput.type = 'file'
+      // Raster formats only — mirrors the server's allowlist (audit S-1)
+      this._imageInput.accept = 'image/png,image/jpeg,image/webp,image/gif'
+      this._imageInput.hidden = true
+      this._imageInput.addEventListener('change', () => {
+        const file = this._imageInput.files?.[0]
+        this._imageInput.value = ''
+        if (file) this._insertUploadedImage(file)
+      })
+      this.appendChild(this._imageInput)
+    }
+    this._imageInput.click()
+  }
+
+  /** Upload via the host callback, then embed the returned repo URL. */
+  async _insertUploadedImage(file) {
+    try {
+      const url = await this.uploadImage(file)
+      if (url) this.editor.chain().focus().setImage({ src: url, alt: file.name }).run()
+      this._media?.refresh() // open media panel shows the new image immediately
+    } catch (err) {
+      this._aiStatusEl.textContent = t(this._lang, 'image.uploadError', { detail: err?.message || '?' })
+      clearTimeout(this._aiStatusTimer)
+      this._aiStatusTimer = setTimeout(() => { this._aiStatusEl.textContent = '' }, 6000)
+    }
+  }
+
+  /** Presence chip click: jump to that user's current cursor position
+   * (their relative Yjs position resolved against our editor state). */
+  _jumpToUser(clientId) {
+    const cursor = this.provider.awareness?.getStates?.().get(clientId)?.cursor
+    const ystate = this.editor && ySyncPluginKey.getState(this.editor.state)
+    if (!cursor?.head || !ystate?.binding) return
+    const abs = relativePositionToAbsolutePosition(
+      ystate.doc, ystate.type, createRelativePositionFromJSON(cursor.head), ystate.binding.mapping)
+    if (abs !== null) this.editor.chain().setTextSelection(abs).scrollIntoView().run()
+  }
+
+  /** Deep link: jump to a TOC-style heading anchor (#slug). Returns whether
+   * the slug resolved — usable by the host (e.g. from location.hash). */
+  jumpToAnchor(slug) {
+    if (!this.editor) return false
+    const pos = findHeadingBySlug(this.editor.state.doc, slug)
+    if (pos === null) return false
+    this.editor.chain().setTextSelection(pos + 1).scrollIntoView().run()
+    return true
+  }
+
   // ----------------------------------------------------------- Internal ---
   _emit(type, detail) {
     this.dispatchEvent(new CustomEvent(type, { detail, bubbles: true }))
@@ -261,102 +293,21 @@ class MdCollabEditor extends HTMLElement {
     this._mdTimer = setTimeout(() => {
       this._emit('markdown-change', { markdown: this.getMarkdown() })
       this._tags.renderChips() // text edits can orphan/revive quotes → refresh chips
+      this._renderWordCount()
     }, 1000)
   }
 
+  _renderWordCount() {
+    if (!this._wordCountEl || !this.editor) return
+    const words = (buildTextIndex(this.editor.state.doc).text.match(/\S+/g) || []).length
+    // ~200 words/min reading speed
+    this._wordCountEl.textContent = words
+      ? t(this._lang, 'editor.wordCount', { words, min: Math.max(1, Math.ceil(words / 200)) })
+      : ''
+  }
+
   _renderToolbar() {
-    const bar = this.querySelector('.mce-toolbar')
-    this._buttons = []
-    for (const tool of TOOLBAR) {
-      if (tool.sep) {
-        const sep = document.createElement('span')
-        sep.className = 'mce-sep'
-        bar.appendChild(sep)
-        continue
-      }
-      const btn = document.createElement('button')
-      btn.type = 'button'
-      btn.innerHTML = tool.labelKey ? t(this._lang, tool.labelKey) : tool.label
-      const title = t(this._lang, tool.titleKey)
-      btn.title = title
-      btn.setAttribute('aria-label', title)
-      if (tool.active) btn.setAttribute('aria-pressed', 'false')
-      btn.dataset.cmd = tool.cmd
-      if (tool.table) btn.dataset.table = 'true'
-      btn.addEventListener('click', () => tool.run(this.editor))
-      bar.appendChild(btn)
-      this._buttons.push({ btn, tool })
-    }
-
-    // Semantic tagging needs component context (popup, Y.Array) — the button
-    // therefore lives here instead of in the static TOOLBAR definition
-    const sep = document.createElement('span')
-    sep.className = 'mce-sep'
-    bar.appendChild(sep)
-    this._tagBtn = document.createElement('button')
-    this._tagBtn.type = 'button'
-    this._tagBtn.innerHTML = t(this._lang, 'editor.tagButtonLabel')
-    this._tagBtn.title = t(this._lang, 'editor.tagButtonTitle')
-    this._tagBtn.setAttribute('aria-label', t(this._lang, 'editor.tagButtonTitle'))
-    this._tagBtn.disabled = true
-    this._tagBtn.addEventListener('click', () => this._tags.openTagDialog())
-    bar.appendChild(this._tagBtn)
-
-    // Paragraph-role control (the SECOND tagging system, src/role-ui.js):
-    // a single exclusive choice per block → a <select>, distinct from the
-    // multi-toggle entity tagging. Roles are structure, never keywords.
-    bar.appendChild(this._roles.buildSelect())
-
-    // AI auto-tagging trigger — the actual AI lives entirely on the server
-    // (server/ai-tagging.js); the button just sends the command and mirrors
-    // the broadcast status. Hidden until the server reports aiAvailable.
-    this._aiBtn = document.createElement('button')
-    this._aiBtn.type = 'button'
-    this._aiBtn.className = 'mce-ai-btn'
-    this._aiBtn.innerHTML = t(this._lang, 'ai.buttonLabel')
-    this._aiBtn.title = t(this._lang, 'ai.buttonTitle')
-    this._aiBtn.setAttribute('aria-label', t(this._lang, 'ai.buttonTitle'))
-    this._aiBtn.style.display = 'none'
-    this._aiBtn.addEventListener('click', () => {
-      this.provider.sendStateless(JSON.stringify({ event: 'ai-tag' }))
-    })
-    bar.appendChild(this._aiBtn)
-    this._aiStatusEl = document.createElement('span')
-    this._aiStatusEl.className = 'mce-ai-status'
-    this._aiStatusEl.setAttribute('role', 'status')
-    this._aiStatusEl.setAttribute('aria-live', 'polite')
-    bar.appendChild(this._aiStatusEl)
-
-    bar.appendChild(this._usersEl)
-    bar.appendChild(this._saveBar.build())
-
-    // WAI-ARIA toolbar pattern: one tab stop, arrow keys move between buttons
-    const rovingButtons = () =>
-      [...bar.querySelectorAll('button')].filter((b) => b.style.display !== 'none' && !b.disabled)
-    const setRoving = (target) => {
-      for (const b of bar.querySelectorAll('button')) b.tabIndex = -1
-      target.tabIndex = 0
-    }
-    setRoving(this._buttons[0].btn)
-    bar.addEventListener('keydown', (e) => {
-      if (!['ArrowRight', 'ArrowLeft', 'Home', 'End'].includes(e.key)) return
-      const btns = rovingButtons()
-      const i = btns.indexOf(document.activeElement)
-      if (i === -1) return
-      e.preventDefault()
-      const n = e.key === 'ArrowRight' ? (i + 1) % btns.length
-        : e.key === 'ArrowLeft' ? (i - 1 + btns.length) % btns.length
-        : e.key === 'Home' ? 0 : btns.length - 1
-      setRoving(btns[n])
-      btns[n].focus()
-    })
-    // Clicking a button makes it the tab stop
-    bar.addEventListener('focusin', (e) => {
-      if (e.target.matches('button')) setRoving(e.target)
-    })
-
-    this._updateToolbar()
-    this._saveBar.render()
+    buildToolbar(this)
   }
 
   /** Server broadcasts: routes AI status + component extras here, save state
@@ -400,6 +351,20 @@ class MdCollabEditor extends HTMLElement {
     }
     this._aiBtn.disabled = false
     this._aiBtn.classList.remove('mce-ai-running')
+    if (msg.phase === 'review') {
+      // Sent to the REQUESTER only: open the selection panel
+      this._aiReview.show(msg)
+      set(t(this._lang, 'ai.reviewReady', { count: (msg.entities?.length || 0) + (msg.roles?.length || 0) }))
+      return
+    }
+    if (msg.phase === 'suggested') {
+      set(t(this._lang, 'ai.suggested', { count: msg.count ?? 0 }))
+      return
+    }
+    if (msg.phase === 'discarded') {
+      set(t(this._lang, 'ai.discarded'))
+      return
+    }
     if (msg.phase === 'done') {
       set(t(this._lang, 'ai.done', { entities: msg.entities ?? 0, roles: msg.roles ?? 0 }))
     } else if (msg.phase === 'error') {
@@ -407,7 +372,7 @@ class MdCollabEditor extends HTMLElement {
         set(t(this._lang, 'ai.errorCooldown', { secs: msg.retryInSec ?? '?' }), true)
         return
       }
-      const key = { busy: 'ai.errorBusy', 'no-write': 'ai.errorNoWrite', 'not-configured': 'ai.errorNotConfigured' }[msg.code]
+      const key = { busy: 'ai.errorBusy', 'no-write': 'ai.errorNoWrite', 'not-configured': 'ai.errorNotConfigured', 'no-pending': 'ai.errorNoPending' }[msg.code]
       set(key ? t(this._lang, key) : t(this._lang, 'ai.errorUpstream', { detail: msg.detail || msg.code || '?' }), true)
     }
   }
@@ -416,6 +381,7 @@ class MdCollabEditor extends HTMLElement {
   /** Controller callback: annotations changed → public event + dirty state. */
   _onAnnotationsChanged() {
     this._emit('annotations-change', { annotations: this.getAnnotations() })
+    this._updateToolbar() // pill count gates the glossary button
     // Tag changes are persisted like text changes (keywords) → save countdown
     this._saveBar.noteChange()
   }
@@ -425,8 +391,17 @@ class MdCollabEditor extends HTMLElement {
     if (this._tagBtn) {
       this._tagBtn.disabled = !this.editor.isEditable || this.editor.state.selection.empty
     }
+    if (this._glossaryBtn) {
+      // raw() (cheap) instead of resolvedList(): pills existing is enough to
+      // enable the button; the click filters for anchored entities anyway
+      this._glossaryBtn.disabled = !this.editor.isEditable || !this._tags.raw().length
+    }
+    if (this._tocBtn) {
+      this._tocBtn.disabled = !this.editor.isEditable || !collectHeadings(this.editor.state.doc).length
+    }
     this._roles.syncSelect()
     const inTable = this.editor.isActive('table')
+    const onImage = this.editor.isActive('image')
     for (const { btn, tool } of this._buttons) {
       if (tool.active) {
         const on = tool.active(this.editor)
@@ -434,6 +409,7 @@ class MdCollabEditor extends HTMLElement {
         btn.setAttribute('aria-pressed', String(on))
       }
       if (tool.table) btn.style.display = inTable ? '' : 'none'
+      if (tool.image) btn.style.display = onImage ? '' : 'none'
     }
   }
 }

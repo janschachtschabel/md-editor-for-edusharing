@@ -24,11 +24,18 @@ import {
 import {
   keywordsToAnnotations, mergeKeywords, preservedKeywords, serializeEntityKeywords,
 } from '../src/annotations.js'
-import { anchoredAnnotations, pruneUnanchoredAnnotations, PRUNE_ORIGIN } from './keyword-sync.js'
+import {
+  anchoredAnnotations, dedupeAnnotations, pruneUnanchoredAnnotations, PRUNE_ORIGIN,
+} from './keyword-sync.js'
+import { refreshDerivedBlocks, REFRESH_ORIGIN } from './doc-blocks.js'
+import { cleanupOrphanImages } from './images.js'
 import {
   registerSessionConnection, resolveAuthToken, unregisterSessionConnection,
 } from './sessions.js'
-import { aiConfigured, runAiTagging } from './ai-tagging.js'
+import {
+  aiConfigured, applyPendingSuggestions, clearPendingSuggestions,
+  discardPendingSuggestions, runAiTagging,
+} from './ai-tagging.js'
 
 const extensions = createExtensions()
 
@@ -106,6 +113,15 @@ function broadcast(document, obj) {
   try { document.broadcastStateless(JSON.stringify(obj)) } catch { /* doc may already be unloaded */ }
 }
 
+/** Pre-flight AI rejection to the REQUESTING connection only — it concerns
+ * nobody else (a broadcast would flash the error on every client, and no
+ * 'started' phase was announced yet that would need a terminal state). */
+function rejectAi(connection) {
+  try {
+    connection.sendStateless(JSON.stringify({ event: 'ai-status', phase: 'error', code: 'no-write' }))
+  } catch { /* requester already gone */ }
+}
+
 /** Announce save/config state to all clients (save display + countdown). */
 export function broadcastConfig(documentName, document) {
   const state = docState.get(documentName)
@@ -127,14 +143,77 @@ export function broadcastConfig(documentName, document) {
 
 // ---------------------------------------------------------- Persistence ---
 /**
+ * Phase 1 of a save: document maintenance (duplicate-pill dedupe, TOC/glossary
+ * refresh) and the final markdown + reconnect snapshot. Returns the markdown
+ * that will be persisted.
+ */
+function prepareMarkdownForSave(documentName, document, state, markdown) {
+  const deduped = dedupeAnnotations(document)
+  if (deduped) console.log(`[save] ${documentName}: removed ${deduped} duplicate entity pill(s)`)
+  const refreshed = refreshDerivedBlocks(document, {
+    toJson: (ydoc = document) => TiptapTransformer.fromYdoc(ydoc, 'default'),
+    markdownToYdoc,
+    blockMarkdown: (blockJson) => htmlToMarkdown(generateHTML({ type: 'doc', content: [blockJson] }, extensions)),
+    otherPlain: state.otherPlain || '',
+  })
+  if (deduped || refreshed) {
+    markdown = ydocToMarkdown(document)
+    rememberSnapshot(documentName, document, markdown)
+  }
+  return markdown
+}
+
+/**
+ * Phase 3 after a VERIFIED write: refresh the other field's plain text from
+ * the read-back, prune annotations that anchor nowhere, and remove editor
+ * images whose id vanished from the persisted markdown.
+ */
+async function housekeepAfterVerifiedSave(documentName, document, state, verify, markdown, auth) {
+  // The other field may have been edited in ITS collab session meanwhile
+  state.otherPlain = markdownToPlainText(
+    (state.mode === 'description' ? verify.compendium : verify.description) || '')
+  const liveText = `${markdownToPlainText(ydocToMarkdown(document))}\n${state.otherPlain}`
+  const pruned = pruneUnanchoredAnnotations(document, liveText)
+  if (pruned) {
+    // Refresh the reconnect snapshot — it was taken BEFORE the prune and
+    // would otherwise resurrect the pruned pills on the next load.
+    rememberSnapshot(documentName, document, markdown)
+    console.log(`[save] ${documentName}: pruned ${pruned} unanchored entity pill(s)`)
+  }
+  // Media housekeeping: editor images (mdimg- child-IOs) whose id vanished
+  // from the persisted markdown are deleted (never throws, see images.js)
+  await cleanupOrphanImages(state.writeTarget, markdown, auth)
+}
+
+/**
  * Shared save logic for onStoreDocument, error retry and the "save" command.
  * Broadcasts the result to all clients.
+ *
+ * Concurrent saves on ONE document are serialized: a manual save can overlap
+ * the debounced store (or the error retry), and interleaved runs let the
+ * first run's read-back verification see the second run's write — a false
+ * "Repo hat die Änderung nicht übernommen" alarm (see test 7 in
+ * test/keyword-lifecycle.test.mjs). Queued runs re-read the live doc when
+ * they start, so the last writer always persists the newest state.
  * @param {boolean} [manual] true = explicit user action (overrides the
  *   autosave switch and also reports precondition failures)
  */
+const saveQueues = new Map() // documentName → tail of the save promise chain
 export async function persistDocument(documentName, document, manual = false) {
+  const tail = saveQueues.get(documentName) || Promise.resolve()
+  const run = tail.then(() => persistDocumentNow(documentName, document, manual))
+  const queueTail = run.catch(() => {}) // a failed save must not poison the queue
+  saveQueues.set(documentName, queueTail)
+  try {
+    await run
+  } finally {
+    if (saveQueues.get(documentName) === queueTail) saveQueues.delete(documentName)
+  }
+}
+
+async function persistDocumentNow(documentName, document, manual) {
   const state = docState.get(documentName)
-  const markdown = ydocToMarkdown(document)
+  let markdown = ydocToMarkdown(document)
   // Snapshot the live Yjs state on every store attempt (this also runs
   // immediately before the document is unloaded) — see docSnapshots above.
   if (state) rememberSnapshot(documentName, document, markdown)
@@ -156,6 +235,8 @@ export async function persistDocument(documentName, document, manual = false) {
     if (manual) broadcast(document, { event: 'save-error', message: 'Der angemeldete Account hat kein Schreibrecht auf diesen Knoten.' })
     return
   }
+  // Phase 1: maintenance (dedupe, TOC/glossary refresh) + final markdown
+  markdown = prepareMarkdownForSave(documentName, document, state, markdown)
   // Entity annotations (shared Y.Array) → general keywords "Name (Typ)".
   // Only annotations anchored in the node's textbase (this document's text OR
   // the node's other field — both share one keyword list) are written; plain
@@ -192,19 +273,8 @@ export async function persistDocument(documentName, document, manual = false) {
       broadcast(document, { event: 'save-error', message: state.lastError })
       return // deterministic failure — no retry
     }
-    // Refresh the other field's text from the read-back (it may have been
-    // edited in ITS collab session meanwhile), then prune annotations that
-    // are anchored nowhere (details: server/keyword-sync.js).
-    state.otherPlain = markdownToPlainText(
-      (state.mode === 'description' ? verify.compendium : verify.description) || '')
-    const liveText = `${markdownToPlainText(ydocToMarkdown(document))}\n${state.otherPlain}`
-    const pruned = pruneUnanchoredAnnotations(document, liveText)
-    if (pruned) {
-      // Refresh the reconnect snapshot — it was taken BEFORE the prune and
-      // would otherwise resurrect the pruned pills on the next load.
-      rememberSnapshot(documentName, document, markdown)
-      console.log(`[save] ${documentName}: pruned ${pruned} unanchored entity pill(s)`)
-    }
+    // Phase 3: read-back-based housekeeping (otherPlain, prune, image cleanup)
+    await housekeepAfterVerifiedSave(documentName, document, state, verify, markdown, auth)
     state.lastSavedMarkdown = markdown
     state.lastSavedKeywords = keywords
     state.lastSavedAt = new Date().toISOString()
@@ -334,6 +404,7 @@ export const hocuspocus = new Hocuspocus({
     const snapshot = docSnapshots.get(documentName)
     if (snapshot && snapshot.markdown === markdown) {
       Y.applyUpdate(document, snapshot.update)
+      dedupeAnnotations(document) // heal duplicates that entered historically
       console.log(`[load] ${documentName} "${info.title}" — restored from cached Yjs state (reconnect, no rebuild)`)
       return document
     }
@@ -351,9 +422,9 @@ export const hocuspocus = new Hocuspocus({
 
   /** Fires on every change (no debounce) — only maintains the buffer state. */
   async onChange({ documentName, transactionOrigin }) {
-    // The post-save prune is not an edit — it must not re-dirty the document
-    // (audit L-2; its store cycle is skipped via PRUNE_ORIGIN.skipStoreHooks)
-    if (transactionOrigin === PRUNE_ORIGIN) return
+    // Server-side maintenance is not an edit — it must not re-dirty the
+    // document (audit L-2; store cycles are skipped via skipStoreHooks)
+    if (transactionOrigin === PRUNE_ORIGIN || transactionOrigin === REFRESH_ORIGIN) return
     const state = docState.get(documentName)
     if (state) {
       state.dirty = true
@@ -380,12 +451,26 @@ export const hocuspocus = new Hocuspocus({
       broadcastConfig(documentName, document)
     } else if (msg.event === 'ai-tag') {
       // AI auto-tagging (server/ai-tagging.js): only editors may trigger it —
-      // read-only connections could otherwise write via the AI as a proxy
+      // read-only connections could otherwise write via the AI as a proxy.
+      // The validated suggestions go back to the REQUESTER for review.
       if (connection?.readOnly) {
-        broadcast(document, { event: 'ai-status', phase: 'error', code: 'no-write' })
+        rejectAi(connection)
         return
       }
-      await runAiTagging({ document, documentName, markdown: ydocToMarkdown(document) })
+      await runAiTagging({ document, documentName, markdown: ydocToMarkdown(document), connection })
+    } else if (msg.event === 'ai-apply') {
+      // Confirmation of reviewed suggestions — same write gate as the trigger
+      if (connection?.readOnly) {
+        rejectAi(connection)
+        return
+      }
+      applyPendingSuggestions(document, documentName, ydocToMarkdown(document), {
+        keepEntities: Array.isArray(msg.keepEntities) ? msg.keepEntities : [],
+        keepRoles: Array.isArray(msg.keepRoles) ? msg.keepRoles : [],
+      })
+    } else if (msg.event === 'ai-discard') {
+      if (connection?.readOnly) return
+      discardPendingSuggestions(document, documentName)
     }
   },
 
@@ -399,5 +484,6 @@ export const hocuspocus = new Hocuspocus({
     if (state?.retryTimer) clearTimeout(state.retryTimer)
     docState.delete(documentName)
     docAuth.delete(documentName)
+    clearPendingSuggestions(documentName)
   },
 })

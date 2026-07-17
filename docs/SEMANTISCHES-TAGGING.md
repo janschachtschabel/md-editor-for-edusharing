@@ -300,10 +300,13 @@ getestet) —, validiert sie mit exakt denselben Regeln wie menschliche Eingaben
 (Zitat muss existieren, kein Kreuzen, keine Duplikate, Rollen nur aus dem
 Katalog) und wendet sie auf
 das geteilte Y.Doc an — Pillen, Decorations und `:::`-Blöcke aktualisieren sich
-bei allen Clients über die normalen Sync-Wege. Status läuft als
-`ai-status`-Broadcast (started/done/error mit Codes, clientseitig übersetzt);
-der API-Key verlässt den Server nie; read-only-Verbindungen dürfen nicht
-auslösen.
+bei allen Clients über die normalen Sync-Wege. Die validierten Funde gehen
+zunächst NUR an den Auslöser zurück (`ai-status` phase `review`) und werden
+erst nach dessen Auswahl per `ai-apply` angewendet (erneut validiert) bzw.
+per `ai-discard` verworfen. Status läuft als `ai-status`-Broadcast
+(started/suggested/done/discarded/error mit Codes, clientseitig übersetzt);
+der API-Key verlässt den Server nie; read-only-Verbindungen dürfen weder
+auslösen noch anwenden.
 
 ## Modul-Landkarte
 

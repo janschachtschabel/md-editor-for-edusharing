@@ -128,6 +128,20 @@ export function createTurndown() {
   // sup/sub have no markdown syntax → keep them as inline HTML
   td.keep(['sup', 'sub'])
 
+  // Sized images: markdown has no size syntax, so a width-carrying image is
+  // kept as raw HTML (CommonMark-legal, rendered by GitHub & Co.) — unsized
+  // images fall through to the default `![alt](url)` rule
+  const attr = (s) => String(s || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;')
+  td.addRule('sizedImage', {
+    filter: (node) => node.nodeName === 'IMG' && Boolean(node.getAttribute('width')),
+    replacement: (_content, node) => {
+      const height = node.getAttribute('height')
+      return `<img src="${attr(node.getAttribute('src'))}" alt="${attr(node.getAttribute('alt'))}"`
+        + ` width="${attr(node.getAttribute('width'))}"`
+        + (height ? ` height="${attr(height)}"` : '') + '>'
+    },
+  })
+
   // Role blocks (paragraph roles) → ::: fenced div. The inner content is
   // serialized normally; blank lines around the fences keep them block-level.
   td.addRule('roleBlock', {

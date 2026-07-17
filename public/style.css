@@ -388,6 +388,8 @@ md-collab-editor.mce-root { display: flex; flex-direction: column; flex: 1; }
 .tiptap hr { border: none; border-top: 2px solid var(--border); margin: 1.5em 0; }
 .tiptap ul, .tiptap ol { padding-left: 1.4em; }
 .tiptap img { max-width: 100%; height: auto; border-radius: 6px; }
+/* Selected image: visible feedback that the S/M/L/⛶ size buttons now apply */
+.tiptap img.ProseMirror-selectednode { outline: 3px solid var(--accent); outline-offset: 2px; }
 
 /* Tabellen */
 .tiptap table {
@@ -485,6 +487,178 @@ md-collab-editor.mce-root { display: flex; flex-direction: column; flex: 1; }
   background: #fffdf5;
   font-size: .74rem;
 }
+
+/* In-content TOC (toc.js): the ::: inhaltsverzeichnis block renders like any
+   role block; its anchor links get a pointer cursor as jump marks */
+section[data-role="inhaltsverzeichnis"] a[href^="#"] { cursor: pointer; }
+
+/* Editor images: responsive by default (markdown has no size/flow syntax) */
+.mce-editor img { max-width: 100%; height: auto; }
+
+/* Comments panel (comments-ui.js): slide-in on the right edge */
+.mce-root { position: relative; }
+.mce-comments {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(21rem, 85%);
+  z-index: 7;
+  display: flex;
+  flex-direction: column;
+  background: #fff;
+  border-left: 1px solid var(--border);
+  box-shadow: -8px 0 24px rgba(15, 23, 42, .12);
+  font-size: .82rem;
+}
+.mce-comments-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: .5rem .75rem;
+  border-bottom: 1px solid var(--border);
+  background: #f8fafc;
+}
+.mce-comments-head button, .mce-comment-actions button, .mce-comments-send {
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: #fff;
+  cursor: pointer;
+  font-size: .75rem;
+  padding: .15rem .5rem;
+}
+.mce-comments-list { flex: 1; overflow-y: auto; padding: .5rem .75rem; }
+.mce-comment { padding: .4rem 0; border-bottom: 1px solid #f1f5f9; }
+.mce-comment-reply { margin-left: 1.4rem; }
+.mce-comment-head { display: flex; gap: .5rem; align-items: baseline; }
+.mce-comment-time { color: #94a3b8; font-size: .72rem; }
+.mce-comment-quote {
+  display: inline-block;
+  border: none;
+  background: #eef2ff;
+  color: #3730a3;
+  border-radius: 4px;
+  padding: 0 .3rem;
+  margin-right: .3rem;
+  cursor: pointer;
+  font-size: .78rem;
+}
+.mce-comment-actions { display: flex; gap: .4rem; margin-top: .2rem; }
+.mce-comments-form { padding: .5rem .75rem; border-top: 1px solid var(--border); display: grid; gap: .35rem; }
+.mce-comments-input { border: 1px solid var(--border); border-radius: 5px; padding: .35rem; font: inherit; resize: vertical; }
+.mce-comments-replyhint { color: #6d28d9; font-size: .75rem; }
+
+/* Media management panel (media-ui.js): same slide-in pattern as comments */
+.mce-media {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(23rem, 90%);
+  z-index: 7;
+  display: flex;
+  flex-direction: column;
+  background: #fff;
+  border-left: 1px solid var(--border);
+  box-shadow: -8px 0 24px rgba(15, 23, 42, .12);
+  font-size: .82rem;
+}
+.mce-media-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: .5rem .75rem;
+  border-bottom: 1px solid var(--border);
+  background: #f8fafc;
+}
+.mce-media-head button, .mce-media-item button {
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: #fff;
+  cursor: pointer;
+  font-size: .75rem;
+  padding: .15rem .5rem;
+}
+.mce-media-head-actions { display: flex; gap: .35rem; }
+.mce-media-list { flex: 1; overflow-y: auto; padding: .5rem .75rem; }
+.mce-media-item { display: flex; gap: .5rem; align-items: center; padding: .35rem 0; border-bottom: 1px solid #f1f5f9; }
+.mce-media-item img {
+  width: 56px; height: 42px;
+  object-fit: cover;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  flex-shrink: 0;
+  background: #f3f4f6;
+}
+.mce-media-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mce-media-used { color: #166534; background: #dcfce7; border-radius: 99px; padding: 0 .45rem; font-size: .68rem; white-space: nowrap; }
+.mce-media-item button:disabled { opacity: .45; cursor: default; }
+.mce-media-del:hover { color: #e5484d; border-color: #e5484d; }
+
+/* AI suggestion review bar (ai-review.js) */
+.mce-ai-review {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .35rem .8rem;
+  align-items: center;
+  padding: .4rem .75rem;
+  border-bottom: 1px solid var(--border);
+  background: #f5f3ff;
+  font-size: .8rem;
+}
+.mce-ai-review-title { color: #6d28d9; }
+.mce-ai-review-item { display: inline-flex; align-items: center; gap: .25rem; cursor: pointer; }
+.mce-ai-review button {
+  padding: .2rem .55rem;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: #fff;
+  cursor: pointer;
+  font-size: .78rem;
+}
+.mce-ai-review-apply { border-color: #6d28d9; color: #6d28d9; }
+.mce-ai-review button:hover { background: #ede9fe; }
+
+/* Find & replace bar (find-replace.js) */
+.mce-find {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .3rem;
+  align-items: center;
+  padding: .35rem .75rem;
+  border-bottom: 1px solid var(--border);
+  background: #f8fafc;
+  font-size: .82rem;
+}
+.mce-find input {
+  padding: .2rem .45rem;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  font-size: .82rem;
+  min-width: 11rem;
+}
+.mce-find button {
+  padding: .2rem .55rem;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: #fff;
+  cursor: pointer;
+  font-size: .78rem;
+}
+.mce-find button:hover { background: #eef2ff; }
+.mce-find-count { color: #6b7280; min-width: 5rem; }
+
+/* Presence chips as buttons (jump-to-cursor) keep the chip look */
+button.mce-chip { border: none; cursor: pointer; font: inherit; }
+
+/* Word count / reading time in the toolbar */
+.mce-wordcount {
+  margin-left: auto;
+  color: #6b7280;
+  font-size: .74rem;
+  white-space: nowrap;
+  align-self: center;
+}
 .mce-role-chip {
   display: inline-flex;
   align-items: center;
@@ -540,6 +714,22 @@ md-collab-editor.mce-root { display: flex; flex-direction: column; flex: 1; }
 .mce-role-select:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .mce-role-select:disabled { opacity: .45; cursor: default; }
 
+/* ------------------------------------------------------------- Druck --- */
+/* Print = clean reading view: document content only, no chrome. The 🖨
+   toolbar button just calls window.print() — these rules do the actual work,
+   so Ctrl+P (also in viewer mode) produces the same result. */
+@media print {
+  .sidebar, .mce-toolbar, .mce-find, .mce-ai-review, .mce-comments,
+  .mce-roles, .mce-entities { display: none !important; }
+  .app { display: block; }
+  .editor-pane, md-collab-editor.mce-root { min-height: 0; }
+  .mce-editor { padding: 0; }
+  .mce-editor:focus-within { box-shadow: none; }
+  .tiptap { min-height: 0; }
+  .tiptap .mce-entity, .tiptap .mce-comment-mark { background: none; border-bottom: none; }
+  .tiptap pre { background: #f3f4f6; color: #1c2024; }
+}
+
 /* ------------------------------ Semantisches Tagging (Standoff) --------- */
 /* Getaggte Stelle: reine Decoration — das Dokument/Markdown bleibt sauber */
 .tiptap .mce-entity {
@@ -550,6 +740,20 @@ md-collab-editor.mce-root { display: flex; flex-direction: column; flex: 1; }
 }
 /* Verschachtelte/deckungsgleiche Tags sichtbar machen */
 .tiptap .mce-entity .mce-entity { background: rgba(37, 99, 235, .17); }
+
+/* In-text comment marks (comment-marks.js): soft yellow, distinct from the
+   blue entity decorations and the amber role chips. Deliberately AFTER the
+   entity rules: on a span that is entity AND commented, the yellow background
+   must win (same specificity → source order decides), while the entity keeps
+   its blue underline via the combined selector below. */
+.tiptap .mce-comment-mark {
+  background: #fef9c3;
+  border-bottom: 2px dotted #ca8a04;
+  cursor: pointer;
+}
+.tiptap .mce-entity.mce-comment-mark { border-bottom-color: #2563eb; }
+/* Briefly highlight the comment the user jumped to from a mark */
+.mce-comment-flash { background: #fef3c7; transition: background .3s; }
 
 /* Entitäten-Leiste unter der Toolbar: alle Tags des Dokuments als Chips */
 .mce-entities {

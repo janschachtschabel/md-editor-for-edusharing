@@ -16,11 +16,12 @@ const ACTIVITY_MS = 4000
 const REFRESH_MS = 2000
 
 export class PresenceTracker {
-  constructor({ provider, usersEl, getLang, onUsers }) {
+  constructor({ provider, usersEl, getLang, onUsers, onJumpTo }) {
     this.provider = provider
     this.usersEl = usersEl
     this.getLang = getLang || (() => 'de')
     this.onUsers = onUsers || (() => {})
+    this.onJumpTo = onJumpTo || null
     this._cursors = new Map() // clientId → serialized cursor position
     this._active = new Map()  // clientId → timestamp of last activity
     this._states = []
@@ -54,6 +55,7 @@ export class PresenceTracker {
       .map((s) => ({
         name: s.user.name,
         color: s.user.color,
+        clientId: s.clientId,
         isSelf: s.clientId === self,
         active: now - (this._active.get(s.clientId) || 0) < ACTIVITY_MS,
       }))
@@ -67,11 +69,18 @@ export class PresenceTracker {
     const lang = this.getLang()
     this.usersEl.innerHTML = ''
     for (const u of users) {
-      const chip = document.createElement('span')
+      // Other users' chips jump to their cursor on click
+      const jumpable = Boolean(this.onJumpTo) && !u.isSelf
+      const chip = document.createElement(jumpable ? 'button' : 'span')
+      if (jumpable) {
+        chip.type = 'button'
+        chip.addEventListener('click', () => this.onJumpTo(u.clientId))
+      }
       chip.className = 'mce-chip' + (u.active ? ' mce-chip-active' : '')
       chip.style.background = u.color || '#888'
       chip.textContent = (u.name || '?') + (u.isSelf ? t(lang, 'users.self') : '') + (u.active && !u.isSelf ? ' ✎' : '')
-      chip.title = u.active ? t(lang, 'users.editingTitle', { name: u.name }) : t(lang, 'users.connectedTitle', { name: u.name })
+      const stateTitle = u.active ? t(lang, 'users.editingTitle', { name: u.name }) : t(lang, 'users.connectedTitle', { name: u.name })
+      chip.title = jumpable ? `${stateTitle} — ${t(lang, 'users.jumpTitle')}` : stateTitle
       this.usersEl.appendChild(chip)
     }
   }

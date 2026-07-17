@@ -175,4 +175,124 @@ check('save without changes afterwards: still a no-op', propertyWrites.length ==
   docState.delete('origin-doc')
 }
 
+// --- 5b) duplicate pills: the save cycle must dedupe the shared array -------------
+// Duplicates can enter the Y.Array from outside the guarded paths (e.g. a
+// server restart rebuilding+seeding against a still-live client): every
+// entity may exist ONCE — persistence heals the array as maintenance.
+{
+  nodeProps['ccm:oeh_collection_compendium_text'] = ['Die Kartoffel wächst in Weimar.']
+  nodeProps['cm:description'] = ['']
+  nodeProps['cclom:general_keyword'] = ['Kartoffel (Thema)']
+  const nameD = '00000000-0000-4000-8000-00000000000d'
+  docAuth.set(nameD, 'Basic dGVzdDpwdw==')
+  const dD = new Y.Doc()
+  const retD = await cfg.onLoadDocument({ documentName: nameD, document: dD })
+  const sdD = retD instanceof Y.Doc ? retD : dD
+  const arrD = sdD.getArray('annotations')
+  // inject the duplication the user observed: same entity again, fresh id
+  arrD.push([{ id: 'dup-1', quote: 'Kartoffel', occurrence: 1, type: 'Thema' },
+    { id: 'dup-2', quote: 'Weimar', occurrence: 1, type: 'Ort' },
+    { id: 'dup-3', quote: 'Weimar', occurrence: 1, type: 'Ort' }])
+  check('setup: array contains duplicates', arrD.length === 4)
+  await persistDocument(nameD, sdD, true)
+  const quotesD = arrD.toArray().map((a) => `${a.quote}|${a.type}`).sort()
+  check('save dedupes the pills (each entity once)',
+    JSON.stringify(quotesD) === JSON.stringify(['Kartoffel|Thema', 'Weimar|Ort']), quotesD)
+  check('repo keywords stay clean after dedupe',
+    JSON.stringify([...nodeProps['cclom:general_keyword']].sort())
+    === JSON.stringify(['Kartoffel (Thema)', 'Weimar (Ort)']), nodeProps['cclom:general_keyword'])
+  await cfg.afterUnloadDocument({ documentName: nameD })
+}
+
+// --- 6) derived blocks refresh on save: TOC + glossary keep themselves current ---
+// Both blocks are opt-in content (inserted once via their buttons); every
+// SAVE brings them up to date server-side so no stale directory persists.
+{
+  const STALE = `::: inhaltsverzeichnis
+## Inhaltsverzeichnis
+
+- [Veraltet](#veraltet)
+:::
+
+# Neue Überschrift
+
+Der Merkur ist klein.
+
+::: glossar
+## Glossar
+
+- **Veraltet** (Ort)
+:::`
+  nodeProps['ccm:oeh_collection_compendium_text'] = [STALE]
+  nodeProps['cm:description'] = ['']
+  nodeProps['cclom:general_keyword'] = ['Merkur (Planet)']
+  const name6 = '00000000-0000-4000-8000-00000000000c'
+  docAuth.set(name6, 'Basic dGVzdDpwdw==')
+  const d6 = new Y.Doc()
+  const ret6 = await cfg.onLoadDocument({ documentName: name6, document: d6 })
+  const sd6 = ret6 instanceof Y.Doc ? ret6 : d6
+  await persistDocument(name6, sd6, true)
+  const saved = nodeProps['ccm:oeh_collection_compendium_text'][0]
+  // marked percent-encodes umlauts in hrefs on the persist round trip — both
+  // forms resolve identically (browsers + the editor's click handler decode)
+  check('save refreshes the TOC (current heading linked)',
+    /\[Neue Überschrift\]\(#neue-(überschrift|%C3%BCberschrift)\)/.test(saved), saved)
+  check('save refreshes the TOC (stale entry gone)', !saved.includes('#veraltet'), saved)
+  check('save refreshes the glossary (anchored entity listed)',
+    /- +\*\*Merkur\*\* \(Planet\)/.test(saved), saved)
+  check('save refreshes the glossary (stale entry gone)', !saved.includes('Veraltet'), saved)
+  const before6 = propertyWrites.length
+  await persistDocument(name6, sd6, true)
+  check('refreshed state is stable (second save is a no-op)',
+    propertyWrites.length === before6, propertyWrites.slice(before6))
+  await cfg.afterUnloadDocument({ documentName: name6 })
+}
+
+// --- 6b) TOC refresh escapes markdown link syntax in heading texts ----------------
+{
+  nodeProps['ccm:oeh_collection_compendium_text'] = [
+    '::: inhaltsverzeichnis\n## Inhaltsverzeichnis\n\n- [alt](#alt)\n:::\n\n# Kapitel [1] Start\n\nInhalt.']
+  nodeProps['cm:description'] = ['']
+  nodeProps['cclom:general_keyword'] = []
+  const nameE = '00000000-0000-4000-8000-00000000000e'
+  docAuth.set(nameE, 'Basic dGVzdDpwdw==')
+  const dE = new Y.Doc()
+  const retE = await cfg.onLoadDocument({ documentName: nameE, document: dE })
+  await persistDocument(nameE, retE instanceof Y.Doc ? retE : dE, true)
+  const savedE = nodeProps['ccm:oeh_collection_compendium_text'][0]
+  check('TOC refresh escapes [ ] in heading link texts (no broken markdown)',
+    /\[Kapitel \\\[1\\\] Start\]\(#/.test(savedE), savedE.split('\n').slice(0, 5))
+  await cfg.afterUnloadDocument({ documentName: nameE })
+}
+
+// --- 7) concurrent saves are serialized (no false verification alarm) -------------
+// Two overlapping persistDocument runs (manual save + debounced store + error
+// retry all call it) used to interleave at the repo: run A wrote, run B wrote,
+// then A's read-back saw B's newer state and broadcast a false
+// "Repo hat die Änderung nicht übernommen" save-error to every client.
+{
+  nodeProps['ccm:oeh_collection_compendium_text'] = ['Sonnental liegt bei Erfurt.']
+  nodeProps['cm:description'] = ['']
+  nodeProps['cclom:general_keyword'] = []
+  const name7 = '00000000-0000-4000-8000-00000000000f'
+  docAuth.set(name7, 'Basic dGVzdDpwdw==')
+  const d7 = new Y.Doc()
+  const ret7 = await cfg.onLoadDocument({ documentName: name7, document: d7 })
+  const sd7 = ret7 instanceof Y.Doc ? ret7 : d7
+  const events = []
+  sd7.broadcastStateless = (s) => events.push(JSON.parse(s))
+  // Save A (keyword change 1) and, while A is in flight, save B (change 2)
+  sd7.getArray('annotations').push([{ id: 'r1', quote: 'Erfurt', occurrence: 1, type: 'Stadt' }])
+  const pA = persistDocument(name7, sd7, true)
+  sd7.getArray('annotations').push([{ id: 'r2', quote: 'Sonnental', occurrence: 1, type: 'Ort' }])
+  const pB = persistDocument(name7, sd7, true)
+  await Promise.all([pA, pB])
+  check('concurrent saves produce no false verification alarm',
+    !events.some((e) => e.event === 'save-error'), events.filter((e) => e.event === 'save-error'))
+  check('concurrent saves persist the final state (both keywords)',
+    nodeProps['cclom:general_keyword'].includes('Erfurt (Stadt)')
+    && nodeProps['cclom:general_keyword'].includes('Sonnental (Ort)'), nodeProps['cclom:general_keyword'])
+  await cfg.afterUnloadDocument({ documentName: name7 })
+}
+
 process.exit(fail ? 1 : 0)
